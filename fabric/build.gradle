@@ -1,0 +1,153 @@
+plugins {
+    id 'multiloader-loader'
+    id 'net.fabricmc.fabric-loom-remap'
+    id 'io.github.goooler.shadow'
+}
+
+configurations {
+    embed
+    implementation.extendsFrom(embed)
+}
+
+configurations.configureEach {
+    resolutionStrategy.componentSelection {
+        all { selection ->
+            if (selection.candidate.group == 'net.fabricmc.fabric-api'
+                    && selection.candidate.module == 'fabric-api'
+                    && !selection.candidate.version.endsWith(fabric_api_minecraft_suffix)) {
+                selection.reject("Fabric API ${selection.candidate.version} does not target Minecraft ${minecraft_version}")
+            }
+        }
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            def fabricVersionedSrcDir = null
+            def fabricMainRuntimePackFile = file('src/main/java/fr/oesphy/pyfish/fabric/content/PyFishFabricRuntimePackResources.java').canonicalFile
+            if (pyfish_version_profile_id == 'mc1211') {
+                fabricVersionedSrcDir = 'src/mc1211/java'
+            } else if (pyfish_version_profile_id in ['mc1212', 'mc1213']) {
+                fabricVersionedSrcDir = 'src/mc1212/java'
+            } else if (pyfish_version_profile_id == 'mc12111') {
+                fabricVersionedSrcDir = 'src/mc12111/java'
+            }
+            if (fabricVersionedSrcDir != null) {
+                srcDir fabricVersionedSrcDir
+                exclude { details -> details.file.canonicalFile == fabricMainRuntimePackFile }
+            }
+        }
+    }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${minecraft_version}"
+    mappings loom.layered {
+        officialMojangMappings()
+        parchment("org.parchmentmc.data:parchment-${parchment_minecraft}:${parchment_version}@zip")
+    }
+    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version_selector}"
+
+    rootProject.ext.pyfishCompileOnlyLibraries.each {
+        compileOnly it
+    }
+    rootProject.ext.pyfishEmbeddedLibraries.each {
+        embed it
+    }
+}
+
+loom {
+    mixin {
+        defaultRefmapName.set("${mod_id}.refmap.json")
+    }
+    runs {
+        client {
+            client()
+            setConfigName('Fabric Client')
+            ideConfigGenerated(true)
+            runDir('runs/client')
+        }
+        server {
+            server()
+            setConfigName('Fabric Server')
+            ideConfigGenerated(true)
+            runDir('runs/server')
+        }
+    }
+}
+
+shadowJar {
+    archiveClassifier = 'dev-shadow'
+    configurations = [project.configurations.embed]
+    mergeServiceFiles()
+
+    manifest {
+        attributes 'Multi-Release': true
+    }
+
+    exclude 'META-INF/native-image/**'
+    exclude 'META-INF/native/**'
+    exclude 'META-INF/proguard/**'
+    exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
+    exclude 'META-INF/LICENSE*', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE*'
+    exclude '**/*.bat'
+    exclude '**/*.exe'
+    exclude 'org/slf4j/**'
+
+    zip64 = true
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+jar {
+    archiveClassifier = 'dev'
+}
+
+remapJar {
+    dependsOn shadowJar
+    inputFile.set(shadowJar.archiveFile)
+    archiveClassifier = ''
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+remapSourcesJar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
+    dependsOn remapJar
+    inputs.file(remapJar.archiveFile)
+
+    doLast {
+        def jarFile = remapJar.archiveFile.get().asFile
+        def requiredEntries = [
+                'org.graalvm.python.vfs/fileslist.txt',
+                'pyfish.py',
+                'java_asyncio.py',
+                'java_logging.py',
+                'java_multiprocessing.py',
+                'java_pathlib.py',
+                'java_pillow.py',
+                'java_pyperclip.py',
+                'java_requests.py',
+                'java_sqlite3.py',
+                'java_subprocess.py',
+                'java_uuid.py',
+                'java_websocket.py',
+                'pip.whl'
+        ]
+
+        def zip = new java.util.zip.ZipFile(jarFile)
+        try {
+            def missingEntries = requiredEntries.findAll { entryName -> zip.getEntry(entryName) == null }
+            if (!missingEntries.isEmpty()) {
+                throw new GradleException("PyFish Fabric jar is missing runtime entries: ${missingEntries.join(', ')}")
+            }
+        } finally {
+            zip.close()
+        }
+    }
+}
+
+build.dependsOn remapJar, verifyPyFishRuntimeJar

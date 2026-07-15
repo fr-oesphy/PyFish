@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement for PyFish
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or limitation
+      description: What is difficult, missing, or awkward today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the change you would like to see.
+    validations:
+      required: true
+  - type: textarea
+    id: use_cases
+    attributes:
+      label: Use cases
+      description: Who benefits from this, and how would it be used?
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Links, examples, or related APIs are welcome.
+

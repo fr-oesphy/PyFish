@@ -1,0 +1,137 @@
+plugins {
+    id 'multiloader-loader'
+    id 'net.neoforged.moddev'
+    id 'io.github.goooler.shadow'
+}
+
+sourceSets {
+    main {
+        java {
+            def neoForgeVersionedSrcDir = null
+            def neoForgeMainRuntimePackFile = file('src/main/java/fr/oesphy/pyfish/neoforge/content/PyFishNeoForgeRuntimePackResources.java').canonicalFile
+            if (pyfish_version_profile_id == 'mc1211') {
+                neoForgeVersionedSrcDir = 'src/mc1211/java'
+            } else if (pyfish_version_profile_id in ['mc1212', 'mc1213']) {
+                neoForgeVersionedSrcDir = 'src/mc1212/java'
+            } else if (pyfish_version_profile_id == 'mc12111') {
+                neoForgeVersionedSrcDir = 'src/mc12111/java'
+            }
+            if (neoForgeVersionedSrcDir != null) {
+                srcDir neoForgeVersionedSrcDir
+                exclude { details -> details.file.canonicalFile == neoForgeMainRuntimePackFile }
+            }
+        }
+    }
+}
+
+configurations {
+    embed
+    implementation.extendsFrom(embed)
+}
+
+dependencies {
+    rootProject.ext.pyfishCompileOnlyLibraries.each {
+        compileOnly it
+    }
+    rootProject.ext.pyfishEmbeddedLibraries.each {
+        embed it
+    }
+}
+
+neoForge {
+    version = neoforge_version_selector
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+    runs {
+        configureEach {
+            systemProperty('neoforge.enabledGameTestNamespaces', mod_id)
+            ideName = "NeoForge ${it.name.capitalize()} (${project.path})"
+        }
+        client {
+            client()
+        }
+        data {
+            data()
+            programArguments.addAll '--mod', mod_id, '--all',
+                    '--output', rootProject.file('src/generated/resources').absolutePath,
+                    '--existing', rootProject.file('src/main/resources').absolutePath
+        }
+        server {
+            server()
+        }
+    }
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+sourceSets.main.resources {
+    srcDir rootProject.file('src/generated/resources')
+}
+
+jar {
+    archiveClassifier = 'slim'
+}
+
+shadowJar {
+    archiveClassifier = ''
+    configurations = [project.configurations.embed]
+    mergeServiceFiles()
+
+    manifest {
+        attributes 'Multi-Release': true
+    }
+
+    exclude 'META-INF/native-image/**'
+    exclude 'META-INF/native/**'
+    exclude 'META-INF/proguard/**'
+    exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
+    exclude 'META-INF/LICENSE*', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE*'
+    exclude '**/*.bat'
+    exclude '**/*.exe'
+    exclude 'org/slf4j/**'
+
+    zip64 = true
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
+    dependsOn shadowJar
+    inputs.file(shadowJar.archiveFile)
+
+    doLast {
+        def jarFile = shadowJar.archiveFile.get().asFile
+        def requiredEntries = [
+                'org.graalvm.python.vfs/fileslist.txt',
+                'pyfish.py',
+                'java_asyncio.py',
+                'java_logging.py',
+                'java_multiprocessing.py',
+                'java_pathlib.py',
+                'java_pillow.py',
+                'java_pyperclip.py',
+                'java_requests.py',
+                'java_sqlite3.py',
+                'java_subprocess.py',
+                'java_uuid.py',
+                'java_websocket.py',
+                'pip.whl'
+        ]
+
+        def zip = new java.util.zip.ZipFile(jarFile)
+        try {
+            def missingEntries = requiredEntries.findAll { entryName -> zip.getEntry(entryName) == null }
+            if (!missingEntries.isEmpty()) {
+                throw new GradleException("PyFish NeoForge jar is missing runtime entries: ${missingEntries.join(', ')}")
+            }
+        } finally {
+            zip.close()
+        }
+    }
+}
+
+build.dependsOn shadowJar, verifyPyFishRuntimeJar

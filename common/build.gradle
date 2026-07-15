@@ -1,0 +1,128 @@
+plugins {
+    id 'multiloader-common'
+    id 'net.neoforged.moddev'
+    id 'org.graalvm.python'
+}
+
+def commonVersionedSrcDirs = []
+if (pyfish_version_profile_id == 'mc1211') {
+    commonVersionedSrcDirs = [rootProject.file('src/mc1211/java')]
+} else if (pyfish_version_profile_id in ['mc1212', 'mc1213', 'mc1214']) {
+    commonVersionedSrcDirs = [rootProject.file('src/mc1212/java')]
+} else if (pyfish_version_profile_id == 'mc12111') {
+    commonVersionedSrcDirs = [
+            rootProject.file('src/mc1215/java'),
+            rootProject.file('src/mc12111/java')
+    ]
+} else if (pyfish_version_profile_id != 'mc1211') {
+    commonVersionedSrcDirs = [rootProject.file('src/mc1215/java')]
+}
+
+def commonMainVersionedFiles = [
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/PyFishContentSupport.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/block/ModularBlock.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularItem.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularDiggerItem.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularSwordItem.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularMultitool.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularPickaxeItem.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularAxeItem.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularHoeItem.java').canonicalFile,
+        rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularShovelItem.java').canonicalFile
+]
+
+sourceSets {
+    main {
+        java.setSrcDirs([rootProject.file('src/main/java')] + commonVersionedSrcDirs)
+        if (pyfish_version_profile_id != 'mc1211') {
+            java.exclude { details -> commonMainVersionedFiles.contains(details.file.canonicalFile) }
+        }
+        if (pyfish_version_profile_id == 'mc12111') {
+            def mc1215IdentifierCompat = rootProject.file('src/mc1215/java/fr/oesphy/pyfish/compat/MinecraftIdentifierCompat.java').canonicalFile
+            java.exclude { details -> details.file.canonicalFile == mc1215IdentifierCompat }
+        }
+        resources.srcDir(rootProject.file('src/main/resources'))
+        resources.exclude('META-INF/**', 'pyfish.mixins.json', 'fabric.mod.json')
+    }
+    test {
+        java.srcDir(project.file('src/test/java'))
+        resources.srcDir(project.file('src/test/resources'))
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
+graalPy {
+    resourceDirectory = 'org.graalvm.python.vfs'
+}
+
+neoForge {
+    neoFormVersion = neo_form_version_selector
+    parchment {
+        minecraftVersion = parchment_minecraft
+        mappingsVersion = parchment_version
+    }
+}
+
+dependencies {
+    rootProject.ext.pyfishCompileOnlyLibraries.each {
+        compileOnly it
+    }
+    rootProject.ext.pyfishEmbeddedLibraries.each {
+        implementation it
+    }
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
+    testRuntimeOnly 'com.google.code.gson:gson:2.10.1'
+}
+
+tasks.named('processResources') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // `pyfish.mixins.json` moved to the Fabric project, so we proactively remove
+    // any stale copy left in the common build output from older builds.
+    doFirst {
+        delete(layout.buildDirectory.file('resources/main/pyfish.mixins.json'))
+        delete(layout.buildDirectory.file('generated/commonResources/pyfish.mixins.json'))
+    }
+}
+
+def syncCommonResources = tasks.register('syncCommonResources', Sync) {
+    dependsOn tasks.named('processResources')
+    from(tasks.named('processResources'))
+    into(layout.buildDirectory.dir('generated/commonResources'))
+}
+
+def syncCommonJava = tasks.register('syncCommonJava', Sync) {
+    from(sourceSets.main.java)
+    into(layout.buildDirectory.dir('generated/commonJava'))
+}
+
+configurations {
+    commonJava {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+    commonResources {
+        canBeResolved = false
+        canBeConsumed = true
+    }
+}
+
+artifacts {
+    add('commonJava', syncCommonJava.map { it.destinationDir }) {
+        builtBy syncCommonJava
+    }
+    add('commonResources', syncCommonResources.map { it.destinationDir }) {
+        builtBy syncCommonResources
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.named('compileTestJava') {
+    dependsOn tasks.named('classes')
+}

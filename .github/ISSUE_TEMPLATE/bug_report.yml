@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible bug in PyFish
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: input
+    id: minecraft
+    attributes:
+      label: Minecraft version
+      placeholder: "1.21.11"
+    validations:
+      required: true
+  - type: dropdown
+    id: loader
+    attributes:
+      label: Loader
+      options:
+        - Fabric
+        - NeoForge
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: pyfish
+    attributes:
+      label: PyFish version
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: List the smallest steps needed to reproduce the problem.
+      placeholder: |
+        1. Install ...
+        2. Place script in ...
+        3. Start the game/server ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or traceback
+      description: Paste the smallest relevant excerpt.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Optional screenshots, mod list notes, or environment details.
+

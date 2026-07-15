@@ -1,0 +1,49 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+        maven { url = 'https://maven.neoforged.net/releases' }
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'Fabric'
+                    url = uri('https://maven.fabricmc.net')
+                }
+            }
+            filter {
+                includeGroupAndSubgroups('net.fabricmc')
+                includeGroup('fabric-loom')
+            }
+        }
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = 'Sponge'
+                    url = uri('https://repo.spongepowered.org/repository/maven-public')
+                }
+            }
+            filter {
+                includeGroupAndSubgroups('org.spongepowered')
+            }
+        }
+    }
+}
+
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.8.0'
+}
+
+rootProject.name = 'pyfish-1.21.1'
+
+def skipFabric = (gradle.startParameter.projectProperties['pyfishSkipFabric'] ?: 'false').toBoolean()
+def skipNeoForge = (gradle.startParameter.projectProperties['pyfishSkipNeoForge'] ?: 'false').toBoolean()
+
+include('common')
+
+if (!skipFabric) {
+    include('fabric')
+}
+
+if (!skipNeoForge) {
+    include('neoforge')
+}

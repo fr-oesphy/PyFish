@@ -1,0 +1,128 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+base {
+    archivesName = "${mod_id}-${project.name}-${minecraft_artifact_target}"
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(java_version)
+    withSourcesJar()
+    withJavadocJar()
+}
+
+repositories {
+    mavenCentral()
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Fabric'
+                url = 'https://maven.fabricmc.net'
+            }
+        }
+        filter {
+            includeGroupAndSubgroups('net.fabricmc')
+        }
+    }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Sponge'
+                url = 'https://repo.spongepowered.org/repository/maven-public'
+            }
+        }
+        filter {
+            includeGroupAndSubgroups('org.spongepowered')
+        }
+    }
+    exclusiveContent {
+        forRepositories(
+                maven {
+                    name = 'ParchmentMC'
+                    url = 'https://maven.parchmentmc.org/'
+                },
+                maven {
+                    name = 'NeoForge'
+                    url = 'https://maven.neoforged.net/releases'
+                }
+        )
+        filter {
+            includeGroup('org.parchmentmc.data')
+        }
+    }
+}
+
+['apiElements', 'runtimeElements', 'sourcesElements', 'javadocElements'].each { variant ->
+    configurations."$variant".outgoing {
+        capability("$group:${base.archivesName.get()}:$version")
+        capability("$group:$mod_id-${project.name}-${minecraft_artifact_target}:$version")
+        capability("$group:$mod_id:$version")
+    }
+    publishing.publications.configureEach {
+        suppressPomMetadataWarningsFor(variant)
+    }
+}
+
+def bundledLicense = rootProject.file('LICENSE').exists()
+        ? rootProject.file('LICENSE')
+        : rootProject.file('TEMPLATE_LICENSE.txt')
+
+tasks.withType(AbstractArchiveTask).configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    if (bundledLicense.exists()) {
+        from(bundledLicense) {
+            rename { "${it}_${mod_id}" }
+        }
+    }
+}
+
+processResources {
+    var expandProps = [
+            'version'                      : version,
+            'group'                        : project.group,
+            'minecraft_version'            : minecraft_version,
+            'minecraft_dependency_version' : minecraft_dependency_version,
+            'minecraft_version_range'      : minecraft_version_range,
+            'minecraft_artifact_target'    : minecraft_artifact_target,
+            'minecraft_supported_versions_label': minecraft_supported_versions_label,
+            'fabric_api_version_selector'  : fabric_api_version_selector,
+            'fabric_api_minecraft_suffix'  : fabric_api_minecraft_suffix,
+            'fabric_loader_version'        : fabric_loader_version,
+            'mod_id'                       : mod_id,
+            'mod_name'                     : mod_name,
+            'mod_license'                  : mod_license,
+            'license'                      : mod_license,
+            'mod_version'                  : mod_version,
+            'mod_group_id'                 : mod_group_id,
+            'mod_authors'                  : mod_authors,
+            'mod_description'              : mod_description,
+            'description'                  : mod_description,
+            'neo_form_version_selector'    : neo_form_version_selector,
+            'neoforge_version_selector'    : neoforge_version_selector,
+            'neoforge_dependency_version_range': neoforge_dependency_version_range,
+            'neoforge_loader_version_range': neoforge_loader_version_range,
+            'java_version'                 : java_version
+    ]
+
+    filesMatching(['fabric.mod.json', 'META-INF/neoforge.mods.toml', '*.mixins.json']) {
+        expand expandProps
+    }
+    inputs.properties(expandProps)
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifactId base.archivesName.get()
+            from components.java
+        }
+    }
+    repositories {
+        maven {
+            url "file://${rootProject.projectDir}/repo"
+        }
+    }
+}

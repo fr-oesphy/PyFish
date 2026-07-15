@@ -1,0 +1,199 @@
+/*
+ * Quick build guide
+ *
+ * Run .\gradlew.bat build from the project root to build the default Minecraft profile.
+ * To build a specific profile, add -PpyfishVersionProfile=<profile-id>; available IDs are
+ * listed in gradle/version-profiles.json. Build output is kept under build/profiles/<profile-id>/.
+ * Use .\gradlew.bat clean only when a clean rebuild is actually needed; normal builds reuse Gradle's cache.
+ */
+ 
+plugins {
+    id 'base'
+    id 'net.fabricmc.fabric-loom-remap' version '1.14.8' apply false
+    id 'net.neoforged.moddev' version '2.0.141' apply false
+    id 'io.github.goooler.shadow' version '8.1.8' apply false
+    id 'org.graalvm.python' version '25.0.1' apply false
+}
+
+def versionProfileFile = rootProject.file('gradle/version-profiles.json')
+def versionProfiles = new groovy.json.JsonSlurper().parse(versionProfileFile)
+def defaultVersionProfileId = (findProperty('default_version_profile') ?: 'mc1211').toString()
+def activeVersionProfileId = (findProperty('pyfishVersionProfile') ?: defaultVersionProfileId).toString()
+def activeVersionProfile = versionProfiles[activeVersionProfileId]
+
+if (activeVersionProfile == null) {
+    throw new GradleException("Unknown PyFish version profile '${activeVersionProfileId}'. Known profiles: ${versionProfiles.keySet().sort().join(', ')}")
+}
+
+def versionProfileOverrides = [
+        minecraft_version                 : activeVersionProfile.minecraft_version,
+        minecraft_dependency_version      : activeVersionProfile.minecraft_dependency_version ?: activeVersionProfile.minecraft_version,
+        minecraft_version_range           : activeVersionProfile.minecraft_version_range,
+        minecraft_artifact_target         : activeVersionProfile.minecraft_artifact_target ?: activeVersionProfile.minecraft_version,
+        minecraft_supported_versions_label: activeVersionProfile.minecraft_supported_versions_label ?: activeVersionProfile.minecraft_version,
+        neo_form_version_selector         : activeVersionProfile.neo_form_version_selector,
+        neoforge_version_selector         : activeVersionProfile.neoforge_version_selector,
+        neoforge_dependency_version_range : activeVersionProfile.neoforge_dependency_version_range,
+        fabric_api_version_selector       : activeVersionProfile.fabric_api_version_selector ?: '+',
+        fabric_api_minecraft_suffix       : activeVersionProfile.fabric_api_minecraft_suffix
+]
+
+ext {
+    graalPyVersion = '25.0.1'
+    pyfishCompileOnlyLibraries = [
+            'org.slf4j:slf4j-api:2.0.9'
+    ]
+    pyfishEmbeddedLibraries = [
+            "org.graalvm.sdk:graal-sdk:${graalPyVersion}",
+            "org.graalvm.polyglot:polyglot:${graalPyVersion}",
+            "org.graalvm.polyglot:python-community:${graalPyVersion}",
+            "org.graalvm.polyglot:js-community:${graalPyVersion}",
+            "org.graalvm.truffle:truffle-api:${graalPyVersion}",
+            "org.graalvm.regex:regex:${graalPyVersion}",
+            "org.graalvm.python:python-embedding:${graalPyVersion}",
+            'org.bouncycastle:bcprov-jdk18on:1.78.1',
+            'org.bouncycastle:bcpkix-jdk18on:1.78.1',
+            'org.xerial:sqlite-jdbc:3.46.0.0'
+    ]
+    pyfishVersionProfiles = versionProfiles
+    pyfishActiveVersionProfileId = activeVersionProfileId
+    pyfishActiveVersionProfile = activeVersionProfile
+}
+
+allprojects {
+    version = rootProject.version
+    group = rootProject.group
+    buildDir = rootProject.file("build/profiles/${activeVersionProfileId}/${project.name}")
+
+    ext {
+        pyfish_version_profile_id = activeVersionProfileId
+        pyfish_version_profile = activeVersionProfile
+    }
+
+    versionProfileOverrides.each { key, value ->
+        ext.set(key, value)
+    }
+}
+
+subprojects {
+    description = mod_description
+
+    tasks.withType(Javadoc).configureEach {
+        options.addStringOption('Xdoclint:none', '-quiet')
+        outputs.cacheIf { false }
+    }
+}
+
+logger.lifecycle("PyFish version profile: ${activeVersionProfileId} -> Minecraft ${activeVersionProfile.minecraft_supported_versions_label}")
+
+def profileTaskSuffix = { String profileId ->
+    profileId.replaceAll(/[^A-Za-z0-9]+/, '_').capitalize()
+}
+
+def skipFabric = (findProperty('pyfishSkipFabric') ?: 'false').toString().toBoolean()
+def skipNeoForge = (findProperty('pyfishSkipNeoForge') ?: 'false').toString().toBoolean()
+def currentProfileBuildTasks = [':common:build']
+def gradlewCommandPrefix = System.getProperty('os.name').toLowerCase().contains('windows')
+        ? ['cmd', '/c', '.\\gradlew.bat']
+        : ['./gradlew']
+
+if (!skipFabric && project.findProject(':fabric') != null) {
+    currentProfileBuildTasks << ':fabric:build'
+}
+
+if (!skipNeoForge && project.findProject(':neoforge') != null) {
+    currentProfileBuildTasks << ':neoforge:build'
+}
+
+tasks.register('listVersionProfiles') {
+    group = 'pyfish versions'
+    description = 'Lists the available PyFish Minecraft version profiles.'
+
+    doLast {
+        println 'Available PyFish version profiles:'
+        versionProfiles.each { profileId, profile ->
+            println " - ${profileId}: compile=${profile.minecraft_version}, supports=${profile.minecraft_supported_versions_label}, NeoForge=${profile.neoforge_version_selector}, NeoForm=${profile.neo_form_version_selector}"
+        }
+    }
+}
+
+def buildAllProfilesTasks = []
+def buildAllFabricProfilesTasks = []
+def buildAllNeoForgeProfilesTasks = []
+def isolatedProfileBuildTasks = []
+
+tasks.register('buildCurrentVersionProfile') {
+    group = 'pyfish versions'
+    description = "Builds the currently selected PyFish version profile (${activeVersionProfile.minecraft_supported_versions_label})."
+    dependsOn currentProfileBuildTasks
+}
+
+versionProfiles.each { profileId, profile ->
+    def suffix = profileTaskSuffix(profileId)
+
+    def buildFabricProfileTask = tasks.register("buildFabricProfile${suffix}", Exec) {
+        group = 'pyfish versions'
+        description = "Builds the Fabric jar for the ${profile.minecraft_supported_versions_label} profile."
+        workingDir rootDir
+        commandLine (gradlewCommandPrefix + [
+                "-PpyfishVersionProfile=${profileId}",
+                '-PpyfishSkipNeoForge=true',
+                ':common:build',
+                ':fabric:build'
+        ])
+    }
+
+    def buildNeoForgeProfileTask = tasks.register("buildNeoForgeProfile${suffix}", Exec) {
+        group = 'pyfish versions'
+        description = "Builds the NeoForge jar for the ${profile.minecraft_supported_versions_label} profile."
+        workingDir rootDir
+        commandLine (gradlewCommandPrefix + [
+                "-PpyfishVersionProfile=${profileId}",
+                '-PpyfishSkipFabric=true',
+                ':common:build',
+                ':neoforge:build'
+        ])
+    }
+
+    def buildProfileTask = tasks.register("buildProfile${suffix}") {
+        group = 'pyfish versions'
+        description = "Builds all loaders for the ${profile.minecraft_supported_versions_label} profile."
+        dependsOn buildFabricProfileTask, buildNeoForgeProfileTask
+    }
+
+    buildAllProfilesTasks << buildProfileTask
+    buildAllFabricProfilesTasks << buildFabricProfileTask
+    buildAllNeoForgeProfilesTasks << buildNeoForgeProfileTask
+    isolatedProfileBuildTasks << buildFabricProfileTask
+    isolatedProfileBuildTasks << buildNeoForgeProfileTask
+}
+
+isolatedProfileBuildTasks.collate(2, 1, false).each { taskPair ->
+    if (taskPair.size() == 2) {
+        taskPair[1].configure {
+            mustRunAfter taskPair[0]
+        }
+    }
+}
+
+tasks.register('buildAllVersionProfiles') {
+    group = 'pyfish versions'
+    description = 'Builds every configured Minecraft version profile for both loaders.'
+    dependsOn buildAllProfilesTasks
+}
+
+tasks.register('buildAllFabricProfiles') {
+    group = 'pyfish versions'
+    description = 'Builds every configured Minecraft version profile for Fabric.'
+    dependsOn buildAllFabricProfilesTasks
+}
+
+tasks.register('buildAllNeoForgeProfiles') {
+    group = 'pyfish versions'
+    description = 'Builds every configured Minecraft version profile for NeoForge.'
+    dependsOn buildAllNeoForgeProfilesTasks
+}
+
+tasks.named('build') {
+    setDependsOn(['buildCurrentVersionProfile'])
+}

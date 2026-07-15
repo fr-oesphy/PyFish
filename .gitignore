@@ -1,0 +1,54 @@
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+*.launch
+.classpath
+.project
+.settings/
+.metadata/
+
+# Build output and Gradle state
+build/
+.gradle/
+.gradle-*/
+.gradle-project-*/
+out/
+bin/
+
+# Minecraft run directories
+run/
+runs/
+run-data/
+pyfish/
+logs/
+crash-reports/
+hs_err_pid*
+replay_pid*.log
+
+# Python cache and packaged example output
+__pycache__/
+*.py[cod]
+*.pyo
+examples/**/dist/
+*.pyz
+
+# Local automation and temporary worktrees
+.agent/
+.agents/
+.codex/
+.doc-publish-repo/
+.tmp/
+tmp/
+temp/
+repo/
+
+# Local logs and diagnostics
+*.log
+*.hprof
+
+# External documentation repo checkout
+API_GUIDE.md
+documentation/
