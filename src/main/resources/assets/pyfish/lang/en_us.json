@@ -1,0 +1,13 @@
+{
+  "itemGroup.pyfish": "Example Mod Tab",
+  "block.pyfish.example_block": "Example Block",
+  "item.pyfish.example_item": "Example Item",
+
+  "pyfish.configuration.title": "PyFish python Configs",
+  "pyfish.configuration.section.pyfish.common.toml": "PyFish python Configs",
+  "pyfish.configuration.section.pyfish.common.toml.title": "PyFish python Configs",
+  "pyfish.configuration.items": "Item List",
+  "pyfish.configuration.logDirtBlock": "Log Dirt Block",
+  "pyfish.configuration.magicNumberIntroduction": "Magic Number Text",
+  "pyfish.configuration.magicNumber": "Magic Number"
+}
