@@ -28,27 +28,13 @@ crash-reports/
 hs_err_pid*
 replay_pid*.log
 
-# Python cache and packaged example output
+# Python cache...
 __pycache__/
 *.py[cod]
 *.pyo
 examples/**/dist/
 *.pyz
 
-# Local automation and temporary worktrees
-.agent/
-.agents/
-.codex/
-.doc-publish-repo/
-.tmp/
-tmp/
-temp/
-repo/
-
 # Local logs and diagnostics
 *.log
 *.hprof
-
-# External documentation repo checkout
-API_GUIDE.md
-documentation/
