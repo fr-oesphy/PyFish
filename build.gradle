@@ -117,6 +117,20 @@ tasks.register('listVersionProfiles') {
     }
 }
 
+tasks.register('quickCheck') {
+    group = 'verification'
+    description = 'Runs the fast CI checks for the selected PyFish version profile.'
+    dependsOn ':common:test'
+
+    // The JAR checks catch incomplete runtime bundles without rebuilding every version profile.
+    if (!skipFabric && project.findProject(':fabric') != null) {
+        dependsOn ':fabric:verifyPyFishRuntimeJar'
+    }
+    if (!skipNeoForge && project.findProject(':neoforge') != null) {
+        dependsOn ':neoforge:verifyPyFishRuntimeJar'
+    }
+}
+
 def buildAllProfilesTasks = []
 def buildAllFabricProfilesTasks = []
 def buildAllNeoForgeProfilesTasks = []
