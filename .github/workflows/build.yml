@@ -37,3 +37,6 @@ jobs:
 
       - name: Run quick verification
         run: ./gradlew quickCheck --stacktrace
+
+      - name: Build with Gradle
+        run: ./gradlew build
