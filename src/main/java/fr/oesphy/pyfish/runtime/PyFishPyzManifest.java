@@ -42,6 +42,10 @@ public record PyFishPyzManifest(
         }
 
         JsonObject root = parsed.getAsJsonObject();
+        if (root.has("dependencies")) {
+            throw new IllegalArgumentException(MANIFEST_NAME
+                    + " field 'dependencies' is not supported yet; remove it and document required mods separately");
+        }
         int schemaVersion = requiredInteger(root, "schema_version");
         if (schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new IllegalArgumentException("Unsupported " + MANIFEST_NAME + " schema_version " + schemaVersion

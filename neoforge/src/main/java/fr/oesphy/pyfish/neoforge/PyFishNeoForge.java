@@ -32,7 +32,7 @@ public class PyFishNeoForge {
         this.contentBackend = new NeoForgePyFishContentBackend(modEventBus);
         PyFishContentManager.bootstrap(contentBackend);
         if (!PyFish.isInitialized()) {
-            PyFish.initialize(new NeoForgePlatform());
+            PyFish.initialize(new NeoForgePlatform(modEventBus));
         }
 
         modEventBus.addListener(this::commonSetup);

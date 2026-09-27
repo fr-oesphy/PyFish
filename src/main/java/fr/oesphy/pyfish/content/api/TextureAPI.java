@@ -13,7 +13,7 @@ public final class TextureAPI {
     }
 
     public BufferedImage loadTexture(String textureId) {
-        return PyFishResourceGenerator.loadTexture(manager.resolveId(textureId));
+        return PyFishResourceGenerator.loadTexture(manager.resolveTextureReference(textureId));
     }
 
     public void registerImage(String textureId, BufferedImage image) {
@@ -27,10 +27,10 @@ public final class TextureAPI {
     }
 
     public byte[] getTextureBytes(String textureId) {
-        return PyFishResourceGenerator.getTextureBytes(manager.resolveId(textureId));
+        return PyFishResourceGenerator.getTextureBytes(manager.resolveTextureReference(textureId));
     }
 
     public void registerTextureBytes(String textureId, byte[] data) {
-        PyFishResourceGenerator.registerTextureBytes(manager.resolveId(textureId), data);
+        PyFishResourceGenerator.registerTextureBytes(manager.resolveTextureReference(textureId), data);
     }
 }

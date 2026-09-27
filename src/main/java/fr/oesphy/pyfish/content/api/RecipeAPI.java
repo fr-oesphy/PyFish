@@ -48,7 +48,7 @@ public final class RecipeAPI {
         root.add("result", resultObject);
 
         PyFishResourceGenerator.addDataTextResource(
-                PyFishResourceGenerator.namespaceOf(recipeId) + ":recipes/" + PyFishResourceGenerator.pathOf(recipeId) + ".json",
+                PyFishResourceGenerator.namespaceOf(recipeId) + ":recipe/" + PyFishResourceGenerator.pathOf(recipeId) + ".json",
                 root.toString());
         PyFish.LOGGER.info("[PyFish/Content] Generated shaped recipe {}", recipeId);
     }
@@ -72,7 +72,7 @@ public final class RecipeAPI {
         root.add("result", resultObject);
 
         PyFishResourceGenerator.addDataTextResource(
-                PyFishResourceGenerator.namespaceOf(recipeId) + ":recipes/" + PyFishResourceGenerator.pathOf(recipeId) + ".json",
+                PyFishResourceGenerator.namespaceOf(recipeId) + ":recipe/" + PyFishResourceGenerator.pathOf(recipeId) + ".json",
                 root.toString());
         PyFish.LOGGER.info("[PyFish/Content] Generated shapeless recipe {}", recipeId);
     }

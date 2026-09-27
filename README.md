@@ -56,7 +56,7 @@ Example instance layout:
 ```text
 .minecraft/
 |-- mods/
-|   |-- pyfish-neoforge-1.21.11-1.2.0.jar
+|   |-- pyfish-neoforge-1.21.11-1.2.5.jar
 |   `-- example_mod-1.0.0.pyz
 |-- config/
 `-- pyfish/
@@ -71,7 +71,7 @@ Example instance layout:
         |               `-- token.png
         |-- data/
         |   `-- my_modpack/
-        |       `-- recipes/
+        |       `-- recipe/
         |           `-- token.json
         `-- scripts/
             `-- level_up.py

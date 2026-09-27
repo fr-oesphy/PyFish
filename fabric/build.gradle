@@ -1,7 +1,7 @@
 plugins {
     id 'multiloader-loader'
     id 'net.fabricmc.fabric-loom-remap'
-    id 'io.github.goooler.shadow'
+    id 'com.gradleup.shadow'
 }
 
 configurations {
@@ -49,6 +49,8 @@ dependencies {
     }
     modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version_selector}"
+    implementation "org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}"
+    include "org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}"
 
     rootProject.ext.pyfishCompileOnlyLibraries.each {
         compileOnly it
@@ -92,6 +94,11 @@ shadowJar {
     exclude 'META-INF/proguard/**'
     exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
     exclude 'META-INF/LICENSE*', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE*'
+    // Loom owns the nested driver; never expose a second copy from PyFish's main module.
+    exclude 'org/sqlite/**'
+    exclude 'META-INF/versions/*/org/sqlite/**'
+    exclude 'META-INF/maven/org.xerial/sqlite-jdbc/**'
+    exclude 'META-INF/services/java.sql.Driver'
     exclude '**/*.bat'
     exclude '**/*.exe'
     exclude 'org/slf4j/**'
@@ -137,17 +144,69 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
                 'java_websocket.py',
                 'pip.whl'
         ]
-
         def zip = new java.util.zip.ZipFile(jarFile)
         try {
             def missingEntries = requiredEntries.findAll { entryName -> zip.getEntry(entryName) == null }
             if (!missingEntries.isEmpty()) {
                 throw new GradleException("PyFish Fabric jar is missing runtime entries: ${missingEntries.join(', ')}")
             }
+            def manifestEntry = zip.getEntry('META-INF/MANIFEST.MF')
+            def manifest = manifestEntry != null
+                    ? new java.util.jar.Manifest(zip.getInputStream(manifestEntry))
+                    : null
+            if (!manifest?.mainAttributes?.getValue('Multi-Release')?.equalsIgnoreCase('true')) {
+                throw new GradleException('PyFish Fabric jar must preserve Multi-Release: true.')
+            }
+
+            def entries = java.util.Collections.list(zip.entries())
+            if (entries.any { entry ->
+                entry.name.endsWith('.class')
+                        && (entry.name.startsWith('org/sqlite/')
+                        || entry.name.matches('META-INF/versions/\\d+/org/sqlite/.*'))
+            }) {
+                throw new GradleException('PyFish Fabric jar exposes SQLite classes from its main module.')
+            }
+            def nestedSqlite = entries.find { entry ->
+                entry.name.startsWith('META-INF/jars/')
+                        && entry.name.contains('sqlite-jdbc')
+                        && entry.name.endsWith('.jar')
+            }
+            if (nestedSqlite == null) {
+                throw new GradleException('PyFish Fabric jar is missing the nested SQLite JDBC driver.')
+            }
+            def nestedZip = new java.util.zip.ZipInputStream(zip.getInputStream(nestedSqlite))
+            try {
+                def containsDriver = false
+                def nestedEntry
+                while ((nestedEntry = nestedZip.nextEntry) != null) {
+                    if (nestedEntry.name == 'org/sqlite/JDBC.class') {
+                        containsDriver = true
+                        break
+                    }
+                }
+                if (!containsDriver) {
+                    throw new GradleException('PyFish Fabric nested SQLite jar is missing org.sqlite.JDBC.')
+                }
+            } finally {
+                nestedZip.close()
+            }
         } finally {
             zip.close()
         }
     }
 }
+
+def smokeTestPyFishRuntimeJar = tasks.register('smokeTestPyFishRuntimeJar', JavaExec) {
+    dependsOn verifyPyFishRuntimeJar, project(':common').tasks.named('testClasses')
+    mainClass = 'fr.oesphy.pyfish.runtime.GraalPyRuntimeJarSmokeTest'
+    classpath = files(project(':common').sourceSets.test.output.classesDirs, remapJar.archiveFile)
+    doFirst {
+        delete(layout.buildDirectory.dir('tmp/graalpy-runtime-smoke'))
+        args remapJar.archiveFile.get().asFile.absolutePath,
+                layout.buildDirectory.dir('tmp/graalpy-runtime-smoke').get().asFile.absolutePath
+    }
+}
+
+build.dependsOn smokeTestPyFishRuntimeJar
 
 build.dependsOn remapJar, verifyPyFishRuntimeJar

@@ -2,6 +2,7 @@ package fr.oesphy.pyfish.api.event;
 
 import fr.oesphy.pyfish.compat.MinecraftCompat;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -9,11 +10,14 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
+
+import java.util.Locale;
 
 public final class PyFishEventObjects {
     private PyFishEventObjects() {
@@ -38,6 +42,33 @@ public final class PyFishEventObjects {
 
         public ServerLevel serverLevel() {
             return level != null ? level : MinecraftCompat.getServerLevel(player);
+        }
+
+        public String getArmorItemId(String slotName) {
+            if (slotName == null) {
+                throw new IllegalArgumentException("Armor slot cannot be null");
+            }
+
+            EquipmentSlot slot = switch (slotName.toLowerCase(Locale.ROOT)) {
+                case "head" -> EquipmentSlot.HEAD;
+                case "chest" -> EquipmentSlot.CHEST;
+                case "legs" -> EquipmentSlot.LEGS;
+                case "feet" -> EquipmentSlot.FEET;
+                default -> throw new IllegalArgumentException(
+                        "Unknown armor slot '" + slotName + "'. Expected head, chest, legs, or feet.");
+            };
+
+            ItemStack stack = player.getItemBySlot(slot);
+            return stack.isEmpty() ? "minecraft:air" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+        }
+
+        public String getItemInSlot(int slot) {
+            if (slot < 0 || slot >= player.getInventory().getContainerSize()) {
+                throw new IllegalArgumentException("Inventory slot out of range: " + slot);
+            }
+
+            ItemStack stack = player.getInventory().getItem(slot);
+            return stack.isEmpty() ? "minecraft:air" : BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
         }
 
         public int getBlockX() {

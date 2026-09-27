@@ -33,7 +33,9 @@ class WorldHandle: ...
 class EntityHandle: ...
 
 
-class PlayerHandle(EntityHandle): ...
+class PlayerHandle(EntityHandle):
+    def getArmorItemId(self, slot_name: str) -> str: ...
+    def getItemInSlot(self, slot: int) -> str: ...
 
 
 class ItemUseOnContextHandle: ...
@@ -506,12 +508,25 @@ class MinecraftAPI:
     def on(self, event, callback):
         """Registers a callback for an event.
         Args:
-            event: Event name (e.g., "BreakEvent") or full Java class path 
-                   (e.g., "net.neoforged.neoforge.event.level.BlockEvent$BreakEvent") 
-                   for dynamic registration of any NeoForge event.
+            event: A built-in PyFish alias, a registered custom native alias, or a
+                   NeoForge event class name for backward-compatible dynamic registration.
             callback: Python function to call when the event triggers.
         """
         self._get_mc().on(event, callback)
+
+    def on_native(self, alias, event_source, callback):
+        """Binds a custom alias to one native event and registers its callback.
+
+        Fabric sources use ``fully.qualified.Callback#EVENT``; NeoForge sources
+        use a fully qualified event class name, optionally prefixed with
+        ``mod:`` to select the PyFish mod event bus.
+        """
+        self._get_mc().onNative(alias, event_source, callback)
+
+    def register_native_event(self, alias, event_source):
+        """Binds an alias for later use with ``mc.on(alias, callback)``."""
+        if not self._get_mc().registerNativeEventAlias(alias, event_source):
+            raise ValueError(f"Native event alias {alias!r} is invalid or already bound")
 # --- Instance ---
 mc = MinecraftAPI()
 content = _PyFishContentModule()
