@@ -6,6 +6,7 @@ import fr.oesphy.pyfish.content.PyFishResourceGenerator;
 import fr.oesphy.pyfish.content.PyFishScriptContext;
 import fr.oesphy.pyfish.platform.PlatformEventBridge;
 import fr.oesphy.pyfish.platform.PlatformPythonModuleLocator;
+import fr.oesphy.pyfish.script.ScriptManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import org.graalvm.polyglot.Context;
@@ -42,6 +43,9 @@ public class GraalPyRuntimeManager {
     private final PythonDependencyManager dependencyManager;
     private final PlatformPythonModuleLocator pythonModuleLocator;
 
+    // New script management system (optional, can be used alongside legacy loading)
+    private ScriptManager scriptManager;
+
     // A single context keeps imported modules and Python callback objects alive between
     // Minecraft events. PYZ entrypoints still get their own globals in PyFishPyzExecutor.
     private Context sharedContext;
@@ -55,6 +59,23 @@ public class GraalPyRuntimeManager {
         stdout = new LoggingOutputStream(false);
         stderr = new LoggingOutputStream(true);
         LOGGER.info("[PyFish] GraalPyRuntimeManager initialized (Shared Context Mode).");
+    }
+
+    /**
+     * Initializes the ScriptManager for enhanced script discovery and management.
+     * This is optional - the legacy script loading still works without it.
+     */
+    public void initScriptManager(Path instanceRoot) {
+        this.scriptManager = new ScriptManager(instanceRoot);
+        scriptManager.discoverScripts();
+        LOGGER.info("[PyFish] ScriptManager initialized with {} scripts", scriptManager.getTotalScriptCount());
+    }
+
+    /**
+     * Gets the ScriptManager, or null if not initialized.
+     */
+    public ScriptManager getScriptManager() {
+        return scriptManager;
     }
 
     public MinecraftAPI getMinecraftAPI() {
