@@ -1,6 +1,7 @@
 package fr.oesphy.pyfish.api.event;
 
 import fr.oesphy.pyfish.compat.MinecraftCompat;
+import fr.oesphy.pyfish.event.EventResult;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -345,11 +346,15 @@ public final class PyFishEventObjects {
         private final ServerLevel level;
         private final ServerPlayer player;
         private final Component message;
+        private boolean cancelled;
+        private EventResult result;
 
         public PlayerChatEvent(ServerLevel level, ServerPlayer player, Component message) {
             this.level = level;
             this.player = player;
             this.message = message != null ? message : Component.literal("");
+            this.cancelled = false;
+            this.result = EventResult.PASS;
         }
 
         public ServerLevel getLevel() {
@@ -374,6 +379,26 @@ public final class PyFishEventObjects {
 
         public MinecraftServer getServer() {
             return level.getServer();
+        }
+
+        public boolean isCancelled() {
+            return cancelled;
+        }
+
+        public void cancel() {
+            this.cancelled = true;
+            this.result = EventResult.CANCEL;
+        }
+
+        public EventResult getResult() {
+            return result;
+        }
+
+        public void setResult(EventResult result) {
+            this.result = result;
+            if (result == EventResult.CANCEL) {
+                this.cancelled = true;
+            }
         }
     }
 

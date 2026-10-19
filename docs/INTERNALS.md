@@ -38,6 +38,9 @@ PyFish/
 │       │   ├── ConsoleApi.java      # Logging with file/line tracking
 │       │   ├── ClassFilter.java     # Java class access control
 │       │   └── PyContextFactory.java # Context creation with security
+│       ├── event/                   # Event system (Phase 3)
+│       │   ├── PyEvent.java         # Base event class with cancel/result support
+│       │   └── EventResult.java    # PASS, CANCEL, SUCCESS, CONSUME enum
 │       ├── content/                 # Content registration system
 │       ├── config/                  # Configuration management
 │       ├── compat/                  # Version compatibility layers
@@ -388,6 +391,41 @@ Error tracking is handled by `ScriptFile.ScriptError`:
 - Stores error message, traceback, line, column, and timestamp
 - Associated with each `ScriptFile` instance
 - Queryable via `ScriptManager.getScriptsWithErrors()`
+
+### Event System Enhancements (Phase 3)
+
+Phase 3 added event result support and cancellable events:
+
+**EventResult Enum**:
+- `PASS`: Pass to next handler (default)
+- `CANCEL`: Cancel the event, prevent default action
+- `SUCCESS`: Event handled successfully
+- `CONSUME`: Event handled, no further processing needed
+
+**Event Object Enhancements**:
+- Event objects can have `cancel()` and `setResult()` methods
+- `PlayerChatEvent` now supports cancellation and result
+- Other events can be upgraded as needed
+- Maintains backward compatibility with existing scripts
+
+**Python API**:
+```python
+from pyfish import mc, EventResult
+
+@events.player.chat
+def on_chat(e):
+    if "creeper" in e.message:
+        e.cancel()  # Cancel the chat message
+        return EventResult.CANCEL
+
+    # Alternative: return EventResult directly
+    return EventResult.PASS
+```
+
+**Java Integration**:
+- `MinecraftAPI.triggerWithResult()` handles EventResult returns
+- Python callbacks can return strings ("PASS", "CANCEL", etc.) converted to EventResult
+- Platform bridges can check event cancellation (planned)
 
 ## Event System
 
