@@ -29,9 +29,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 public class MinecraftAPI {
     private final Map<String, List<EventCallback>> eventCallbacks = new HashMap<>();
+    private final Map<String, String> nativeEventAliases = new HashMap<>();
     private final Set<String> wiredEvents = new HashSet<>();
     private final PlatformEventBridge eventBridge;
 
@@ -359,8 +361,25 @@ public class MinecraftAPI {
     }
 
     public void on(String eventNameOrClass, Value callback) {
-        if (!callback.canExecute()) {
+        if (callback == null || !callback.canExecute()) {
             PyFish.LOGGER.warn("[PyFish/MCAPI] Callback for event {} is not executable", eventNameOrClass);
+            return;
+        }
+
+        String nativeEventSource = nativeEventAliases.get(eventNameOrClass);
+        if (nativeEventSource != null) {
+            EventCallback binding = new EventCallback(callback, PyFishScriptContext.currentNamespace());
+            if (!eventBridge.registerNativeEvent(
+                    eventNameOrClass,
+                    nativeEventSource,
+                    args -> invokeNativeCallback(eventNameOrClass, binding, args))) {
+                PyFish.LOGGER.warn(
+                        "[PyFish/MCAPI] Could not register native event alias '{}' from '{}'",
+                        eventNameOrClass,
+                        nativeEventSource);
+                return;
+            }
+            PyFish.LOGGER.info("[PyFish/MCAPI] Registered callback for native event alias: {}", eventNameOrClass);
             return;
         }
 
@@ -393,6 +412,67 @@ public class MinecraftAPI {
                 }
             }
         }
+    }
+
+    public synchronized boolean registerNativeEventAlias(String alias, String eventSource) {
+        if (alias == null || alias.isBlank() || eventSource == null || eventSource.isBlank()) {
+            PyFish.LOGGER.warn("[PyFish/MCAPI] Native event alias and source must not be blank");
+            return false;
+        }
+        String existingSource = nativeEventAliases.putIfAbsent(alias, eventSource);
+        if (existingSource != null && !existingSource.equals(eventSource)) {
+            PyFish.LOGGER.warn(
+                    "[PyFish/MCAPI] Native event alias '{}' is already bound to '{}'",
+                    alias,
+                    existingSource);
+            return false;
+        }
+        return true;
+    }
+
+    public void onNative(String alias, String eventSource, Value callback) {
+        if (callback == null || !callback.canExecute()) {
+            PyFish.LOGGER.warn("[PyFish/MCAPI] Callback for native event {} is not executable", alias);
+            return;
+        }
+        if (!registerNativeEventAlias(alias, eventSource)) {
+            return;
+        }
+        on(alias, callback);
+    }
+
+    private Object invokeNativeCallback(String alias, EventCallback binding, Object[] args) {
+        try (PyFishScriptContext.Scope ignored = PyFishScriptContext.push(binding.namespace)) {
+            return toNativeReturnValue(binding.callback.execute(args));
+        } catch (Exception e) {
+            PyFish.LOGGER.error("[PyFish/MCAPI] Error in native event callback for {}: {}", alias, e.getMessage());
+            return null;
+        }
+    }
+
+    private Object toNativeReturnValue(Value result) {
+        if (result == null || result.isNull()) {
+            return null;
+        }
+        if (result.isHostObject()) {
+            return result.asHostObject();
+        }
+        if (result.isBoolean()) {
+            return result.asBoolean();
+        }
+        if (result.isString()) {
+            return result.asString();
+        }
+        if (result.fitsInInt()) {
+            return result.asInt();
+        }
+        if (result.fitsInLong()) {
+            return result.asLong();
+        }
+        if (result.fitsInDouble()) {
+            return result.asDouble();
+        }
+        return result.as(Object.class);
     }
 
     private String resolveIdentifier(String rawId, String fallbackId) {

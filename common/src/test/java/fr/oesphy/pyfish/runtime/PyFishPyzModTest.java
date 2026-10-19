@@ -60,6 +60,23 @@ class PyFishPyzModTest {
     }
 
     @Test
+    void rejectsDependenciesThatTheRuntimeCannotEnforce() throws IOException {
+        Path archive = tempDir.resolve("unsupported-dependencies.pyz");
+        String manifest = manifest("dependent_mod").replace(
+                "\"homepage\": \"https://example.invalid\"",
+                "\"homepage\": \"https://example.invalid\",\n"
+                        + "  \"dependencies\": {\"pyz\": [\"shared_core\"]}");
+        writeArchive(archive, Map.of(
+                "pyfish.mod.json", manifest,
+                "__main__.py", "pass\n"));
+
+        IOException error = assertThrows(IOException.class, () -> PyFishPyzMod.inspect(archive));
+
+        assertTrue(error.getMessage().contains("dependencies"));
+        assertTrue(error.getMessage().contains("not supported"));
+    }
+
+    @Test
     void rejectsUnsafeArchivePaths() throws IOException {
         Path archive = tempDir.resolve("unsafe.pyz");
         Map<String, String> entries = new LinkedHashMap<>();

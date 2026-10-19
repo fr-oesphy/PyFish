@@ -1,7 +1,7 @@
 plugins {
     id 'multiloader-loader'
     id 'net.neoforged.moddev'
-    id 'io.github.goooler.shadow'
+    id 'com.gradleup.shadow'
 }
 
 sourceSets {
@@ -35,6 +35,12 @@ dependencies {
     }
     rootProject.ext.pyfishEmbeddedLibraries.each {
         embed it
+    }
+    jarJar(implementation("org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}")) {
+        version {
+            strictly '[3.40.0.0,4.0.0.0)'
+            prefer rootProject.ext.pyfishSqliteJdbcVersion
+        }
     }
 }
 
@@ -77,8 +83,10 @@ jar {
     archiveClassifier = 'slim'
 }
 
+def jarJarTask = tasks.named('jarJar')
+
 shadowJar {
-    archiveClassifier = ''
+    archiveClassifier = 'shadow'
     configurations = [project.configurations.embed]
     mergeServiceFiles()
 
@@ -91,6 +99,11 @@ shadowJar {
     exclude 'META-INF/proguard/**'
     exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
     exclude 'META-INF/LICENSE*', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE*'
+    // Keep the Jar-in-Jar driver opaque; exporting these paths from PyFish causes JPMS split packages.
+    exclude 'org/sqlite/**'
+    exclude 'META-INF/versions/*/org/sqlite/**'
+    exclude 'META-INF/maven/org.xerial/sqlite-jdbc/**'
+    exclude 'META-INF/services/java.sql.Driver'
     exclude '**/*.bat'
     exclude '**/*.exe'
     exclude 'org/slf4j/**'
@@ -99,12 +112,23 @@ shadowJar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
+def runtimeJar = tasks.register('runtimeJar', Jar) {
+    dependsOn shadowJar, jarJarTask
+    archiveClassifier = ''
+    from({ zipTree(shadowJar.archiveFile.get().asFile) })
+    from(jarJarTask.flatMap { it.outputDirectory })
+    manifest {
+        attributes 'Multi-Release': 'true'
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
 def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
-    dependsOn shadowJar
-    inputs.file(shadowJar.archiveFile)
+    dependsOn runtimeJar
+    inputs.file(runtimeJar.flatMap { it.archiveFile })
 
     doLast {
-        def jarFile = shadowJar.archiveFile.get().asFile
+        def jarFile = runtimeJar.get().archiveFile.get().asFile
         def requiredEntries = [
                 'org.graalvm.python.vfs/fileslist.txt',
                 'pyfish.py',
@@ -121,12 +145,51 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
                 'java_websocket.py',
                 'pip.whl'
         ]
-
         def zip = new java.util.zip.ZipFile(jarFile)
         try {
             def missingEntries = requiredEntries.findAll { entryName -> zip.getEntry(entryName) == null }
             if (!missingEntries.isEmpty()) {
                 throw new GradleException("PyFish NeoForge jar is missing runtime entries: ${missingEntries.join(', ')}")
+            }
+            def manifestEntry = zip.getEntry('META-INF/MANIFEST.MF')
+            def manifest = manifestEntry != null
+                    ? new java.util.jar.Manifest(zip.getInputStream(manifestEntry))
+                    : null
+            if (!manifest?.mainAttributes?.getValue('Multi-Release')?.equalsIgnoreCase('true')) {
+                throw new GradleException('PyFish NeoForge jar must preserve Multi-Release: true.')
+            }
+
+            def entries = java.util.Collections.list(zip.entries())
+            if (entries.any { entry ->
+                entry.name.endsWith('.class')
+                        && (entry.name.startsWith('org/sqlite/')
+                        || entry.name.matches('META-INF/versions/\\d+/org/sqlite/.*'))
+            }) {
+                throw new GradleException('PyFish NeoForge jar exports SQLite classes from its main module.')
+            }
+            def nestedSqlite = entries.find { entry ->
+                entry.name.startsWith('META-INF/jarjar/')
+                        && entry.name.contains('sqlite-jdbc')
+                        && entry.name.endsWith('.jar')
+            }
+            if (nestedSqlite == null) {
+                throw new GradleException('PyFish NeoForge jar is missing the nested SQLite JDBC driver.')
+            }
+            def nestedZip = new java.util.zip.ZipInputStream(zip.getInputStream(nestedSqlite))
+            try {
+                def containsDriver = false
+                def nestedEntry
+                while ((nestedEntry = nestedZip.nextEntry) != null) {
+                    if (nestedEntry.name == 'org/sqlite/JDBC.class') {
+                        containsDriver = true
+                        break
+                    }
+                }
+                if (!containsDriver) {
+                    throw new GradleException('PyFish NeoForge nested SQLite jar is missing org.sqlite.JDBC.')
+                }
+            } finally {
+                nestedZip.close()
             }
         } finally {
             zip.close()
@@ -134,4 +197,15 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
     }
 }
 
-build.dependsOn shadowJar, verifyPyFishRuntimeJar
+def smokeTestPyFishRuntimeJar = tasks.register('smokeTestPyFishRuntimeJar', JavaExec) {
+    dependsOn verifyPyFishRuntimeJar, project(':common').tasks.named('testClasses')
+    mainClass = 'fr.oesphy.pyfish.runtime.GraalPyRuntimeJarSmokeTest'
+    classpath = files(project(':common').sourceSets.test.output.classesDirs, runtimeJar.flatMap { it.archiveFile })
+    doFirst {
+        delete(layout.buildDirectory.dir('tmp/graalpy-runtime-smoke'))
+        args runtimeJar.get().archiveFile.get().asFile.absolutePath,
+                layout.buildDirectory.dir('tmp/graalpy-runtime-smoke').get().asFile.absolutePath
+    }
+}
+
+build.dependsOn runtimeJar, verifyPyFishRuntimeJar, smokeTestPyFishRuntimeJar
