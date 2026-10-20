@@ -5,9 +5,11 @@ import fr.oesphy.pyfish.compat.MinecraftCompat;
 import fr.oesphy.pyfish.content.PyFishResourceGenerator;
 import fr.oesphy.pyfish.content.PyFishScriptContext;
 import fr.oesphy.pyfish.platform.PlatformEventBridge;
+import fr.oesphy.pyfish.runtime.GraalPyRuntimeManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -339,6 +341,62 @@ public class MinecraftAPI {
         }
     }
 
+    // --- Task Scheduling ---
+
+    /**
+     * Schedules a task to run after a delay in ticks.
+     * @param server The Minecraft server
+     * @param delayTicks Delay in ticks (20 ticks = 1 second)
+     * @param callback Python callback to execute
+     * @return Task ID for cancellation
+     */
+    public long scheduleDelayedTask(MinecraftServer server, long delayTicks, Value callback) {
+        if (!PyFish.isInitialized()) {
+            return -1;
+        }
+        GraalPyRuntimeManager runtime = PyFish.getPythonRuntime();
+        return runtime.getTaskScheduler().scheduleDelayedTask(server, delayTicks, () -> {
+            try {
+                callback.execute();
+            } catch (Exception e) {
+                PyFish.LOGGER.error("[PyFish/MCAPI] Error in scheduled task: {}", e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * Schedules a repeating task.
+     * @param server The Minecraft server
+     * @param intervalTicks Interval in ticks
+     * @param callback Python callback to execute
+     * @return Task ID for cancellation
+     */
+    public long scheduleRepeatingTask(MinecraftServer server, long intervalTicks, Value callback) {
+        if (!PyFish.isInitialized()) {
+            return -1;
+        }
+        GraalPyRuntimeManager runtime = PyFish.getPythonRuntime();
+        return runtime.getTaskScheduler().scheduleRepeatingTask(server, intervalTicks, () -> {
+            try {
+                callback.execute();
+            } catch (Exception e) {
+                PyFish.LOGGER.error("[PyFish/MCAPI] Error in repeating task: {}", e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * Cancels a scheduled task.
+     * @param taskId The task ID to cancel
+     * @return true if the task was cancelled
+     */
+    public boolean cancelTask(long taskId) {
+        if (!PyFish.isInitialized()) {
+            return false;
+        }
+        return PyFish.getPythonRuntime().getTaskScheduler().cancelTask(taskId);
+    }
+
     public void setExperience(ServerPlayer player, int level) {
         if (player != null) {
             player.setExperienceLevels(level);
@@ -490,6 +548,59 @@ public class MinecraftAPI {
         if (callbacks.isEmpty()) {
             eventCallbacks.remove(eventNameOrClass);
         }
+    }
+
+    /**
+     * Clears all event callbacks. Used during script reload to prevent duplicate handlers.
+     */
+    public synchronized void clearAllEventCallbacks() {
+        int totalCallbacks = eventCallbacks.values().stream().mapToInt(List::size).sum();
+        eventCallbacks.clear();
+        wiredEvents.clear();
+        nativeEventAliases.clear();
+        PyFish.LOGGER.info("[PyFish/MCAPI] Cleared {} event callbacks", totalCallbacks);
+    }
+
+    /**
+     * Clears event callbacks for a specific namespace.
+     * Used during selective script reload to remove handlers from reloaded scripts.
+     */
+    public synchronized void clearEventCallbacksForNamespace(String namespace) {
+        int removedCount = 0;
+        for (var iterator = eventCallbacks.entrySet().iterator(); iterator.hasNext(); ) {
+            var entry = iterator.next();
+            var callbacks = entry.getValue();
+            var namespaceIterator = callbacks.iterator();
+            while (namespaceIterator.hasNext()) {
+                if (namespace.equals(namespaceIterator.next().namespace)) {
+                    namespaceIterator.remove();
+                    removedCount++;
+                }
+            }
+            if (callbacks.isEmpty()) {
+                iterator.remove();
+                wiredEvents.remove(entry.getKey());
+            }
+        }
+        PyFish.LOGGER.info("[PyFish/MCAPI] Cleared {} event callbacks for namespace '{}'", removedCount, namespace);
+    }
+
+    /**
+     * Gets the number of registered event callbacks for debugging and diagnostics.
+     */
+    public synchronized int getEventCallbackCount() {
+        return eventCallbacks.values().stream().mapToInt(List::size).sum();
+    }
+
+    /**
+     * Gets the number of registered event callbacks for a specific namespace.
+     */
+    public synchronized int getEventCallbackCountForNamespace(String namespace) {
+        return eventCallbacks.values().stream()
+                .flatMap(List::stream)
+                .filter(cb -> namespace.equals(cb.namespace))
+                .mapToInt(cb -> 1)
+                .sum();
     }
 
     private static final class EventCallback {

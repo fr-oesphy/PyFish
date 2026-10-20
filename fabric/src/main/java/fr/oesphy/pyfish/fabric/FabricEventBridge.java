@@ -155,8 +155,13 @@ public class FabricEventBridge implements PlatformEventBridge {
                 yield true;
             }
             case "on_server_tick" -> {
-                ServerTickEvents.END_SERVER_TICK.register(
-                        server -> dispatch("on_server_tick", new Object[] { new PyFishEventObjects.ServerEvent(server) }));
+                ServerTickEvents.END_SERVER_TICK.register(server -> {
+                    // Update task scheduler
+                    if (PyFish.isInitialized()) {
+                        PyFish.getPythonRuntime().getTaskScheduler().onServerTick(server);
+                    }
+                    dispatch("on_server_tick", new Object[] { new PyFishEventObjects.ServerEvent(server) });
+                });
                 yield true;
             }
             case "on_level_load" -> {

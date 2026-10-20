@@ -81,6 +81,9 @@ public class NeoForgeEventBridge implements PlatformEventBridge {
         EVENT_ALIASES.put("on_server_stopping", "net.neoforged.neoforge.event.server.ServerStoppingEvent");
         EVENT_ALIASES.put("on_server_stopped", "net.neoforged.neoforge.event.server.ServerStoppedEvent");
         EVENT_ALIASES.put("on_server_tick", "net.neoforged.neoforge.event.tick.ServerTickEvent$Post");
+
+        // Special handling for server tick to update task scheduler
+        // This will be handled in the event wrapper
         EVENT_ALIASES.put("on_level_tick", "net.neoforged.neoforge.event.tick.LevelTickEvent$Post");
     }
 

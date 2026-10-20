@@ -39,8 +39,17 @@ PyFish/
 │       │   ├── ClassFilter.java     # Java class access control
 │       │   └── PyContextFactory.java # Context creation with security
 │       ├── event/                   # Event system (Phase 3)
-│       │   ├── PyEvent.java         # Base event class with cancel/result support
 │       │   └── EventResult.java    # PASS, CANCEL, SUCCESS, CONSUME enum
+│       ├── wrapper/                 # Pythonic wrappers (Phase 4)
+│       │   ├── BaseWrapper.java    # Base class for all wrappers
+│       │   ├── Pos.java            # Block position wrapper
+│       │   ├── Id.java             # ResourceLocation/Identifier wrapper
+│       │   ├── EntityW.java        # Entity wrapper
+│       │   ├── PlayerW.java        # ServerPlayer wrapper
+│       │   ├── LevelW.java         # ServerLevel wrapper
+│       │   └── ItemStackW.java     # ItemStack wrapper
+│       ├── convert/                 # Type coercion (Phase 4)
+│       │   └── TypeConverter.java  # Python<->Java type conversion
 │       ├── content/                 # Content registration system
 │       ├── config/                  # Configuration management
 │       ├── compat/                  # Version compatibility layers
@@ -426,6 +435,49 @@ def on_chat(e):
 - `MinecraftAPI.triggerWithResult()` handles EventResult returns
 - Python callbacks can return strings ("PASS", "CANCEL", etc.) converted to EventResult
 - Platform bridges can check event cancellation (planned)
+
+## Wrapper and Type Conversion System (Phase 4)
+
+Phase 4 introduced Pythonic wrappers and type conversion for better Java interop:
+
+### Wrapper Classes
+
+**BaseWrapper**: Base class for all wrappers
+- Provides `unwrap()` to get the underlying Java object
+- Consistent `toString()` implementation
+- Type-safe with generics
+
+**Specific Wrappers**:
+- `Pos`: Block position with `getX()`, `getY()`, `getZ()`, `offset()`
+- `Identifier`: ResourceLocation/Identifier with `getNamespace()`, `getPath()`
+- `EntityWrapper`: Entity wrapper with `getType()`, `getPos()`, `isAlive()`, `kill()`
+- `PlayerWrapper`: ServerPlayer wrapper with `getName()`, `getUuid()`, `getHealth()`, etc.
+- `LevelWrapper`: ServerLevel wrapper with `getTime()`, `setTime()`, `getDimension()`
+- `ItemStackWrapper`: ItemStack wrapper with `getCount()`, `setCount()`, `isEmpty()`
+
+### Type Converter
+
+**TypeConverter** utility class:
+- `toIdentifier(String)`: Converts strings to ResourceLocation
+- `wrap(Object)`: Wraps Java objects in Pythonic wrappers
+- `unwrap(Object)`: Unwraps wrapper to get Java object
+- `fromPython(Value)`: Converts GraalPy Value to Java object
+
+Usage:
+```java
+Pos pos = new Pos(1, 2, 3);
+ResourceLocation id = TypeConverter.toIdentifier("minecraft:stone");
+PlayerW player = new PlayerW(serverPlayer);
+```
+
+### Integration with Python
+
+The Python API (`pyfish.py`) already has wrapper classes:
+- `_PlayerWrapper`: Python-side player wrapper with properties
+- `_WorldWrapper`: Python-side world wrapper
+- `_ApiWrapper`: Generic wrapper with method mapping
+
+Phase 4 Java wrappers can be exposed to Python through the GraalPy interop API.
 
 ## Event System
 

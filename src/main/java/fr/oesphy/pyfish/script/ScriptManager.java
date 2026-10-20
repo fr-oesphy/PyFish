@@ -1,6 +1,7 @@
 package fr.oesphy.pyfish.script;
 
 import fr.oesphy.pyfish.PyFish;
+import fr.oesphy.pyfish.runtime.GraalPyRuntimeManager;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -24,11 +25,20 @@ public class ScriptManager {
     private final Map<String, ScriptPack> packs;
     private final ConsoleApi consoleApi;
     private final Path instanceRoot;
+    private GraalPyRuntimeManager runtimeManager;
 
     public ScriptManager(Path instanceRoot) {
         this.packs = new HashMap<>();
         this.consoleApi = new ConsoleApi();
         this.instanceRoot = instanceRoot;
+    }
+
+    /**
+     * Sets the runtime manager for script execution.
+     * This is called after the ScriptManager is created but before scripts are executed.
+     */
+    public void setRuntimeManager(GraalPyRuntimeManager runtimeManager) {
+        this.runtimeManager = runtimeManager;
     }
 
     /**
@@ -247,24 +257,124 @@ public class ScriptManager {
 
     /**
      * Reloads all scripts from disk.
-     * This clears the current script list and re-discovers them.
+     * This clears the current script list, clears event callbacks, and re-discovers scripts.
+     * Note: This is a full reload; STARTUP scripts are not re-executed as registries are frozen.
      */
     public void reload() {
         LOGGER.info("[PyFish] Reloading scripts...");
+
+        // Clear event callbacks to prevent duplicate handlers
+        if (runtimeManager != null && runtimeManager.getMinecraftAPI() != null) {
+            runtimeManager.getMinecraftAPI().clearAllEventCallbacks();
+        }
+
+        // Clear script packs and console buffer
         packs.clear();
         consoleApi.clearRingBuffer();
+
+        // Re-discover scripts
         discoverScripts();
-        LOGGER.info("[PyFish] Script reload complete");
+
+        LOGGER.info("[PyFish] Script discovery complete. Use executeScripts() to run reloaded scripts.");
     }
 
     /**
      * Reloads scripts of a specific type.
+     * SERVER and CLIENT scripts can be reloaded; STARTUP scripts cannot.
      */
     public void reload(ScriptType type) {
+        if (type == ScriptType.STARTUP) {
+            LOGGER.warn("[PyFish] STARTUP scripts cannot be reloaded after registries freeze.");
+            return;
+        }
+
         LOGGER.info("[PyFish] Reloading {} scripts...", type);
-        // For now, do a full reload
-        // TODO: Implement selective reload
+
+        // Clear event callbacks for namespaces that have scripts of this type
+        for (ScriptPack pack : packs.values()) {
+            if (pack.getScriptCount(type) > 0 && runtimeManager != null && runtimeManager.getMinecraftAPI() != null) {
+                runtimeManager.getMinecraftAPI().clearEventCallbacksForNamespace(pack.getNamespace());
+            }
+        }
+
+        // For now, do a full reload to ensure consistent state
+        // TODO: Implement selective reload that only re-executes changed scripts
         reload();
+    }
+
+    /**
+     * Executes all discovered scripts using the runtime manager.
+     * Scripts are executed in the correct order: STARTUP -> SERVER -> CLIENT
+     */
+    public void executeScripts() {
+        if (runtimeManager == null) {
+            LOGGER.warn("[PyFish] Cannot execute scripts: runtime manager not set");
+            return;
+        }
+
+        LOGGER.info("[PyFish] Executing scripts...");
+
+        // Execute STARTUP scripts first (if in initialization phase)
+        List<ScriptFile> startupScripts = getScripts(ScriptType.STARTUP);
+        if (!startupScripts.isEmpty()) {
+            LOGGER.info("[PyFish] Executing {} STARTUP scripts", startupScripts.size());
+            executeScriptList(startupScripts);
+        }
+
+        // Execute SERVER scripts
+        List<ScriptFile> serverScripts = getScripts(ScriptType.SERVER);
+        if (!serverScripts.isEmpty()) {
+            LOGGER.info("[PyFish] Executing {} SERVER scripts", serverScripts.size());
+            executeScriptList(serverScripts);
+        }
+
+        // Execute CLIENT scripts (only on client side)
+        List<ScriptFile> clientScripts = getScripts(ScriptType.CLIENT);
+        if (!clientScripts.isEmpty()) {
+            LOGGER.info("[PyFish] Executing {} CLIENT scripts", clientScripts.size());
+            executeScriptList(clientScripts);
+        }
+
+        LOGGER.info("[PyFish] Script execution complete");
+    }
+
+    /**
+     * Executes a list of scripts in sorted order.
+     */
+    private void executeScriptList(List<ScriptFile> scripts) {
+        List<ScriptFile> sorted = sortScriptsForExecution(scripts);
+        for (ScriptFile script : sorted) {
+            executeScript(script);
+        }
+    }
+
+    /**
+     * Executes a single script through the runtime manager.
+     */
+    private void executeScript(ScriptFile script) {
+        try {
+            String scriptName = script.getFullName();
+            String code = script.getSource();
+
+            // Load the script into the runtime manager
+            runtimeManager.loadScript(scriptName, code, script.getNamespace());
+
+            // Execute the script
+            runtimeManager.executeScript(scriptName, null, null, true);
+
+            script.setLoaded(true);
+            script.setLastError(null);
+            LOGGER.debug("[PyFish] Executed script: {}", script.getRelativePath());
+        } catch (Exception e) {
+            script.setLoaded(false);
+            script.setLastError(new ScriptFile.ScriptError(
+                    e.getMessage(),
+                    null,
+                    0,
+                    0
+            ));
+            LOGGER.error("[PyFish] Failed to execute script {}: {}", script.getRelativePath(), e.getMessage(), e);
+        }
     }
 
     /**

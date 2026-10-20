@@ -167,6 +167,121 @@ class _ApiWrapper:
         return getattr(self._obj, name)
 
 
+class _PlayerWrapper:
+    """Pythonic wrapper for ServerPlayer with convenience methods."""
+    def __init__(self, java_player):
+        self._player = java_player
+
+    def unwrapPlayer(self):
+        return self._player
+
+    @property
+    def name(self):
+        return self._player.getName().getString()
+
+    @property
+    def uuid(self):
+        return str(self._player.getUUID())
+
+    @property
+    def health(self):
+        return self._player.getHealth()
+
+    @health.setter
+    def health(self, value):
+        mc.set_health(self._player, value)
+
+    @property
+    def food_level(self):
+        return self._player.getFoodData().getFoodLevel()
+
+    @food_level.setter
+    def food_level(self, value):
+        mc.set_food_level(self._player, value)
+
+    @property
+    def experience_level(self):
+        return self._player.experienceLevel
+
+    @experience_level.setter
+    def experience_level(self, value):
+        mc.set_experience(self._player, value)
+
+    @property
+    def position(self):
+        pos = self._player.position()
+        return (pos.x, pos.y, pos.z)
+
+    def send_message(self, message):
+        mc.send_message(self._player, message)
+
+    def give_item(self, item_id, count=1):
+        mc.give_item(self._player, item_id, count)
+
+    def teleport(self, x, y, z):
+        mc.teleport(self._player, x, y, z)
+
+    def heal(self, amount=None):
+        if amount is None:
+            self.health = self._player.getMaxHealth()
+        else:
+            self.health = min(self.health + amount, self._player.getMaxHealth())
+
+    def add_effect(self, effect_id, duration, amplifier=0):
+        mc.add_effect(self._player, effect_id, duration, amplifier)
+
+    def __repr__(self):
+        return f"Player(name={self.name!r}, uuid={self.uuid!r})"
+
+
+class _WorldWrapper:
+    """Pythonic wrapper for ServerLevel with convenience methods."""
+    def __init__(self, java_world):
+        self._world = java_world
+
+    def unwrapLevel(self):
+        return self._world
+
+    @property
+    def time(self):
+        return mc.get_time(self._world)
+
+    @time.setter
+    def time(self, value):
+        mc.set_time(self._world, value)
+
+    @property
+    def players(self):
+        return [_PlayerWrapper(p) for p in mc.get_players(self._world)]
+
+    def set_block(self, x, y, z, block_id):
+        mc.set_block(self._world, x, y, z, block_id)
+
+    def get_block(self, x, y, z):
+        return mc.get_block_id(self._world, x, y, z)
+
+    def break_block(self, x, y, z):
+        mc.break_block(self._world, x, y, z)
+
+    def spawn_entity(self, entity_type_id, x, y, z):
+        mc.spawn_entity(self._world, entity_type_id, x, y, z)
+
+    def get_entities_in_range(self, x, y, z, range):
+        return mc.get_entities_in_range(self._world, x, y, z, range)
+
+    def create_explosion(self, x, y, z, radius, fire=False, mode="block"):
+        mc.create_explosion(self._world, x, y, z, radius, fire, mode)
+
+    def strike_lightning(self, x, y, z):
+        mc.strike_lightning(self._world, x, y, z)
+
+    def broadcast_message(self, message):
+        mc.broadcast_message(self._world, message)
+
+    def __repr__(self):
+        return f"World(dimension={self._world.dimension().location().toString()!r})"
+
+
 class _TextureWrapper(_ApiWrapper):
     def get_texture_bytes(self, texture_id):
         java_bytes = self._obj.getTextureBytes(texture_id)
@@ -242,6 +357,8 @@ class MinecraftAPI:
 
     def _unwrap_player(self, player):
         """Unwraps loader-specific player handles into the backing Java ServerPlayer."""
+        if isinstance(player, _PlayerWrapper):
+            return player.unwrapPlayer()
         unwrap = getattr(player, "unwrapPlayer", None)
         if unwrap is not None:
             return unwrap()
@@ -256,6 +373,8 @@ class MinecraftAPI:
 
     def _unwrap_world(self, world):
         """Unwraps loader-specific world handles into the backing Java ServerLevel."""
+        if isinstance(world, _WorldWrapper):
+            return world.unwrapLevel()
         unwrap = getattr(world, "unwrapLevel", None)
         if unwrap is not None:
             return unwrap()
@@ -274,6 +393,18 @@ class MinecraftAPI:
         if unwrap is not None:
             return unwrap()
         return pos
+
+    def wrap_player(self, java_player):
+        """Wraps a Java ServerPlayer in a Pythonic wrapper."""
+        if java_player is None:
+            return None
+        return _PlayerWrapper(java_player)
+
+    def wrap_world(self, java_world):
+        """Wraps a Java ServerLevel in a Pythonic wrapper."""
+        if java_world is None:
+            return None
+        return _WorldWrapper(java_world)
 
     def set_block(self, world, x, y, z, block_id):
         """Places a block in the world at the specified coordinates.
@@ -358,9 +489,10 @@ class MinecraftAPI:
         Args:
             world: The Minecraft world (ServerLevel).
         Returns:
-            list: A list of ServerPlayer objects.
+            list: A list of wrapped Player objects.
         """
-        return self._get_mc().getPlayers(self._unwrap_world(world))
+        java_players = self._get_mc().getPlayers(self._unwrap_world(world))
+        return [self.wrap_player(p) for p in java_players]
 
     # --- Entities & Movement ---
 
@@ -527,6 +659,66 @@ class MinecraftAPI:
         """Binds an alias for later use with ``mc.on(alias, callback)``."""
         if not self._get_mc().registerNativeEventAlias(alias, event_source):
             raise ValueError(f"Native event alias {alias!r} is invalid or already bound")
+
+    # --- Decorator-based event registration ---
+    def event(self, event_name):
+        """Decorator for registering event callbacks.
+        Usage:
+            @mc.event("player.join")
+            def on_player_join(event):
+                player = event.player
+                mc.send_message(player, "Welcome!")
+        """
+        def decorator(callback):
+            self.on(event_name, callback)
+            return callback
+        return decorator
+
+    def command(self, command_name):
+        """Decorator for registering command handlers (future implementation).
+        Usage:
+            @mc.command("heal")
+            def heal_command(source):
+                player = source.player
+                if player is not None:
+                    mc.set_health(player, 20)
+        """
+        def decorator(callback):
+            # TODO: Implement command registration system
+            return callback
+        return decorator
+
+    # --- Task Scheduling ---
+    def schedule_delayed_task(self, server, delay_ticks, callback):
+        """Schedules a task to run after a delay in ticks.
+        Args:
+            server: The Minecraft server
+            delay_ticks: Delay in ticks (20 ticks = 1 second)
+            callback: Python function to execute
+        Returns:
+            Task ID for cancellation
+        """
+        return self._get_mc().scheduleDelayedTask(self._unwrap_server(server), delay_ticks, callback)
+
+    def schedule_repeating_task(self, server, interval_ticks, callback):
+        """Schedules a repeating task.
+        Args:
+            server: The Minecraft server
+            interval_ticks: Interval in ticks
+            callback: Python function to execute
+        Returns:
+            Task ID for cancellation
+        """
+        return self._get_mc().scheduleRepeatingTask(self._unwrap_server(server), interval_ticks, callback)
+
+    def cancel_task(self, task_id):
+        """Cancels a scheduled task.
+        Args:
+            task_id: The task ID to cancel
+        Returns:
+            True if the task was cancelled
+        """
+        return self._get_mc().cancelTask(task_id)
 # --- Instance ---
 mc = MinecraftAPI()
 content = _PyFishContentModule()
@@ -588,4 +780,6 @@ __all__ = [
     "tags",
     "textures",
     "tabs",
+    "_PlayerWrapper",
+    "_WorldWrapper",
 ]

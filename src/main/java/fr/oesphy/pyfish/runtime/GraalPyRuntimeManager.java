@@ -49,6 +49,9 @@ public class GraalPyRuntimeManager {
     // New script management system (optional, can be used alongside legacy loading)
     private ScriptManager scriptManager;
 
+    // Task scheduler for delayed and repeating tasks
+    private final TaskScheduler taskScheduler;
+
     // A single context keeps imported modules and Python callback objects alive between
     // Minecraft events. PYZ entrypoints still get their own globals in PyFishPyzExecutor.
     private Context sharedContext;
@@ -63,6 +66,7 @@ public class GraalPyRuntimeManager {
         this.runtimeResourceRoot = runtimeResourceRoot;
         minecraftAPI = new MinecraftAPI(eventBridge);
         dependencyManager = new PythonDependencyManager();
+        taskScheduler = new TaskScheduler();
         stdout = new LoggingOutputStream(false);
         stderr = new LoggingOutputStream(true);
         LOGGER.info("[PyFish] GraalPyRuntimeManager initialized (Shared Context Mode).");
@@ -74,6 +78,7 @@ public class GraalPyRuntimeManager {
      */
     public void initScriptManager(Path instanceRoot) {
         this.scriptManager = new ScriptManager(instanceRoot);
+        scriptManager.setRuntimeManager(this);
         scriptManager.discoverScripts();
         LOGGER.info("[PyFish] ScriptManager initialized with {} scripts", scriptManager.getTotalScriptCount());
     }
@@ -87,6 +92,10 @@ public class GraalPyRuntimeManager {
 
     public MinecraftAPI getMinecraftAPI() {
         return minecraftAPI;
+    }
+
+    public TaskScheduler getTaskScheduler() {
+        return taskScheduler;
     }
 
     public void loadScript(String name, String code, String modId) {
