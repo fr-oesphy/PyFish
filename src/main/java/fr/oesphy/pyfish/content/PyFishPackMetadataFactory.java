@@ -2,6 +2,8 @@ package fr.oesphy.pyfish.content;
 
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.metadata.pack.PackMetadataSection;
+import net.minecraft.util.InclusiveRange;
 
 import java.nio.charset.StandardCharsets;
 import java.lang.reflect.Constructor;
@@ -21,7 +23,7 @@ public final class PyFishPackMetadataFactory {
     @SuppressWarnings("unchecked")
     public static <T> T create(Object metadataType, PackType packType) {
         try {
-            Class<?> packMetadataClass = Class.forName("net.minecraft.server.packs.metadata.pack.PackMetadataSection");
+            Class<?> packMetadataClass = PackMetadataSection.class;
             if (!isPackMetadataType(packMetadataClass, metadataType)) {
                 return null;
             }
@@ -71,11 +73,7 @@ public final class PyFishPackMetadataFactory {
 
     public static byte[] createPackMcmetaBytes(PackType packType) {
         try {
-            Object currentPackVersion = resolveCurrentPackVersion(packType);
-            Integer packFormat = extractPackFormatNumber(currentPackVersion);
-            if (packFormat == null) {
-                return null;
-            }
+            int packFormat = MinecraftPackVersionCompat.currentFormatNumber(packType);
 
             String json = """
                     {
@@ -86,7 +84,7 @@ public final class PyFishPackMetadataFactory {
                     }
                     """.formatted(packFormat);
             return json.getBytes(StandardCharsets.UTF_8);
-        } catch (ReflectiveOperationException | RuntimeException ignored) {
+        } catch (RuntimeException ignored) {
             return null;
         }
     }
@@ -138,10 +136,7 @@ public final class PyFishPackMetadataFactory {
     }
 
     private static Object resolveCurrentPackVersion(PackType packType) throws ReflectiveOperationException {
-        Class<?> sharedConstantsClass = Class.forName("net.minecraft.SharedConstants");
-        Object currentVersion = sharedConstantsClass.getMethod("getCurrentVersion").invoke(null);
-        Method packVersionMethod = currentVersion.getClass().getMethod("packVersion", PackType.class);
-        return packVersionMethod.invoke(currentVersion, packType);
+        return MinecraftPackVersionCompat.current(packType);
     }
 
     private static Object createSupportedFormatsArgument(
@@ -170,13 +165,13 @@ public final class PyFishPackMetadataFactory {
             return UnsupportedArgument.INSTANCE;
         }
 
-        if ("net.minecraft.util.InclusiveRange".equals(parameterType.getName())) {
-            Object packFormat = normalizePackFormat(currentPackVersion);
-            if (packFormat == null) {
+        if (InclusiveRange.class.isAssignableFrom(parameterType)) {
+            Object rangeValue = rangeValue(genericParameterType, currentPackVersion);
+            if (rangeValue == null) {
                 return UnsupportedArgument.INSTANCE;
             }
 
-            return createInclusiveRange(parameterType, packFormat);
+            return createInclusiveRange(parameterType, rangeValue);
         }
 
         return UnsupportedArgument.INSTANCE;
@@ -211,30 +206,31 @@ public final class PyFishPackMetadataFactory {
 
     private static Object createOptionalPayload(Type genericParameterType, Object currentPackVersion)
             throws ReflectiveOperationException {
-        if (!(genericParameterType instanceof ParameterizedType parameterizedType)
-                || parameterizedType.getActualTypeArguments().length != 1) {
+        if (!(genericParameterType instanceof ParameterizedType optionalType)
+                || optionalType.getActualTypeArguments().length != 1) {
             return null;
         }
 
-        String typeName = parameterizedType.getActualTypeArguments()[0].getTypeName();
-        if (typeName.startsWith("net.minecraft.util.InclusiveRange")) {
-            Object packFormat = normalizePackFormat(currentPackVersion);
-            if (packFormat == null) {
+        Type payloadType = optionalType.getActualTypeArguments()[0];
+        if (payloadType instanceof ParameterizedType rangeType
+                && rangeType.getRawType() instanceof Class<?> rangeClass
+                && InclusiveRange.class.isAssignableFrom(rangeClass)) {
+            Object rangeValue = rangeValue(rangeType, currentPackVersion);
+            if (rangeValue == null) {
                 return UnsupportedArgument.INSTANCE;
             }
 
-            Class<?> inclusiveRangeClass = Class.forName("net.minecraft.util.InclusiveRange");
-            return createInclusiveRange(inclusiveRangeClass, packFormat);
+            return createInclusiveRange(rangeClass, rangeValue);
         }
 
-        if ("net.minecraft.server.packs.metadata.pack.PackFormat".equals(typeName)) {
-            Object packFormat = normalizePackFormat(currentPackVersion);
-            return packFormat != null ? packFormat : UnsupportedArgument.INSTANCE;
-        }
-
-        if ((typeName.equals("java.lang.Integer") || typeName.equals("int"))
-                && currentPackVersion instanceof Number number) {
-            return number.intValue();
+        if (payloadType instanceof Class<?> payloadClass) {
+            if ((payloadClass == Integer.class || payloadClass == int.class)
+                    && currentPackVersion instanceof Number number) {
+                return number.intValue();
+            }
+            if (payloadClass.isInstance(currentPackVersion)) {
+                return currentPackVersion;
+            }
         }
 
         return null;
@@ -260,25 +256,17 @@ public final class PyFishPackMetadataFactory {
             return null;
         }
 
-        if ("net.minecraft.server.packs.metadata.pack.PackFormat".equals(currentPackVersion.getClass().getName())) {
-            return currentPackVersion;
+        return currentPackVersion instanceof Number ? null : currentPackVersion;
+    }
+
+    private static Object rangeValue(Type genericRangeType, Object currentPackVersion) {
+        if (genericRangeType instanceof ParameterizedType parameterizedType
+                && parameterizedType.getActualTypeArguments().length == 1
+                && parameterizedType.getActualTypeArguments()[0] == Integer.class
+                && currentPackVersion instanceof Number number) {
+            return number.intValue();
         }
-
-        if (currentPackVersion instanceof Number number) {
-            Class<?> packFormatClass = Class.forName("net.minecraft.server.packs.metadata.pack.PackFormat");
-            for (Method method : packFormatClass.getMethods()) {
-                if (!method.getName().equals("of") || method.getParameterCount() != 1) {
-                    continue;
-                }
-
-                Class<?> parameterType = method.getParameterTypes()[0];
-                if (parameterType == int.class || parameterType == Integer.class) {
-                    return method.invoke(null, number.intValue());
-                }
-            }
-        }
-
-        return null;
+        return currentPackVersion instanceof Number ? null : currentPackVersion;
     }
 
     private static Integer extractPackFormatNumber(Object value) throws ReflectiveOperationException {

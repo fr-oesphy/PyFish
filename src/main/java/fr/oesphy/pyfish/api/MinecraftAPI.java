@@ -5,9 +5,11 @@ import fr.oesphy.pyfish.compat.MinecraftCompat;
 import fr.oesphy.pyfish.content.PyFishResourceGenerator;
 import fr.oesphy.pyfish.content.PyFishScriptContext;
 import fr.oesphy.pyfish.platform.PlatformEventBridge;
+import fr.oesphy.pyfish.runtime.GraalPyRuntimeManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -29,9 +31,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 
 public class MinecraftAPI {
     private final Map<String, List<EventCallback>> eventCallbacks = new HashMap<>();
+    private final Map<String, String> nativeEventAliases = new HashMap<>();
     private final Set<String> wiredEvents = new HashSet<>();
     private final PlatformEventBridge eventBridge;
 
@@ -337,6 +341,62 @@ public class MinecraftAPI {
         }
     }
 
+    // --- Task Scheduling ---
+
+    /**
+     * Schedules a task to run after a delay in ticks.
+     * @param server The Minecraft server
+     * @param delayTicks Delay in ticks (20 ticks = 1 second)
+     * @param callback Python callback to execute
+     * @return Task ID for cancellation
+     */
+    public long scheduleDelayedTask(MinecraftServer server, long delayTicks, Value callback) {
+        if (!PyFish.isInitialized()) {
+            return -1;
+        }
+        GraalPyRuntimeManager runtime = PyFish.getPythonRuntime();
+        return runtime.getTaskScheduler().scheduleDelayedTask(server, delayTicks, () -> {
+            try {
+                callback.execute();
+            } catch (Exception e) {
+                PyFish.LOGGER.error("[PyFish/MCAPI] Error in scheduled task: {}", e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * Schedules a repeating task.
+     * @param server The Minecraft server
+     * @param intervalTicks Interval in ticks
+     * @param callback Python callback to execute
+     * @return Task ID for cancellation
+     */
+    public long scheduleRepeatingTask(MinecraftServer server, long intervalTicks, Value callback) {
+        if (!PyFish.isInitialized()) {
+            return -1;
+        }
+        GraalPyRuntimeManager runtime = PyFish.getPythonRuntime();
+        return runtime.getTaskScheduler().scheduleRepeatingTask(server, intervalTicks, () -> {
+            try {
+                callback.execute();
+            } catch (Exception e) {
+                PyFish.LOGGER.error("[PyFish/MCAPI] Error in repeating task: {}", e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * Cancels a scheduled task.
+     * @param taskId The task ID to cancel
+     * @return true if the task was cancelled
+     */
+    public boolean cancelTask(long taskId) {
+        if (!PyFish.isInitialized()) {
+            return false;
+        }
+        return PyFish.getPythonRuntime().getTaskScheduler().cancelTask(taskId);
+    }
+
     public void setExperience(ServerPlayer player, int level) {
         if (player != null) {
             player.setExperienceLevels(level);
@@ -359,8 +419,25 @@ public class MinecraftAPI {
     }
 
     public void on(String eventNameOrClass, Value callback) {
-        if (!callback.canExecute()) {
+        if (callback == null || !callback.canExecute()) {
             PyFish.LOGGER.warn("[PyFish/MCAPI] Callback for event {} is not executable", eventNameOrClass);
+            return;
+        }
+
+        String nativeEventSource = nativeEventAliases.get(eventNameOrClass);
+        if (nativeEventSource != null) {
+            EventCallback binding = new EventCallback(callback, PyFishScriptContext.currentNamespace());
+            if (!eventBridge.registerNativeEvent(
+                    eventNameOrClass,
+                    nativeEventSource,
+                    args -> invokeNativeCallback(eventNameOrClass, binding, args))) {
+                PyFish.LOGGER.warn(
+                        "[PyFish/MCAPI] Could not register native event alias '{}' from '{}'",
+                        eventNameOrClass,
+                        nativeEventSource);
+                return;
+            }
+            PyFish.LOGGER.info("[PyFish/MCAPI] Registered callback for native event alias: {}", eventNameOrClass);
             return;
         }
 
@@ -395,6 +472,67 @@ public class MinecraftAPI {
         }
     }
 
+    public synchronized boolean registerNativeEventAlias(String alias, String eventSource) {
+        if (alias == null || alias.isBlank() || eventSource == null || eventSource.isBlank()) {
+            PyFish.LOGGER.warn("[PyFish/MCAPI] Native event alias and source must not be blank");
+            return false;
+        }
+        String existingSource = nativeEventAliases.putIfAbsent(alias, eventSource);
+        if (existingSource != null && !existingSource.equals(eventSource)) {
+            PyFish.LOGGER.warn(
+                    "[PyFish/MCAPI] Native event alias '{}' is already bound to '{}'",
+                    alias,
+                    existingSource);
+            return false;
+        }
+        return true;
+    }
+
+    public void onNative(String alias, String eventSource, Value callback) {
+        if (callback == null || !callback.canExecute()) {
+            PyFish.LOGGER.warn("[PyFish/MCAPI] Callback for native event {} is not executable", alias);
+            return;
+        }
+        if (!registerNativeEventAlias(alias, eventSource)) {
+            return;
+        }
+        on(alias, callback);
+    }
+
+    private Object invokeNativeCallback(String alias, EventCallback binding, Object[] args) {
+        try (PyFishScriptContext.Scope ignored = PyFishScriptContext.push(binding.namespace)) {
+            return toNativeReturnValue(binding.callback.execute(args));
+        } catch (Exception e) {
+            PyFish.LOGGER.error("[PyFish/MCAPI] Error in native event callback for {}: {}", alias, e.getMessage());
+            return null;
+        }
+    }
+
+    private Object toNativeReturnValue(Value result) {
+        if (result == null || result.isNull()) {
+            return null;
+        }
+        if (result.isHostObject()) {
+            return result.asHostObject();
+        }
+        if (result.isBoolean()) {
+            return result.asBoolean();
+        }
+        if (result.isString()) {
+            return result.asString();
+        }
+        if (result.fitsInInt()) {
+            return result.asInt();
+        }
+        if (result.fitsInLong()) {
+            return result.asLong();
+        }
+        if (result.fitsInDouble()) {
+            return result.asDouble();
+        }
+        return result.as(Object.class);
+    }
+
     private String resolveIdentifier(String rawId, String fallbackId) {
         String id = rawId != null && !rawId.isBlank() ? rawId : fallbackId;
         return PyFishResourceGenerator.resolveNamespacedString(id, PyFishScriptContext.currentNamespace());
@@ -410,6 +548,59 @@ public class MinecraftAPI {
         if (callbacks.isEmpty()) {
             eventCallbacks.remove(eventNameOrClass);
         }
+    }
+
+    /**
+     * Clears all event callbacks. Used during script reload to prevent duplicate handlers.
+     */
+    public synchronized void clearAllEventCallbacks() {
+        int totalCallbacks = eventCallbacks.values().stream().mapToInt(List::size).sum();
+        eventCallbacks.clear();
+        wiredEvents.clear();
+        nativeEventAliases.clear();
+        PyFish.LOGGER.info("[PyFish/MCAPI] Cleared {} event callbacks", totalCallbacks);
+    }
+
+    /**
+     * Clears event callbacks for a specific namespace.
+     * Used during selective script reload to remove handlers from reloaded scripts.
+     */
+    public synchronized void clearEventCallbacksForNamespace(String namespace) {
+        int removedCount = 0;
+        for (var iterator = eventCallbacks.entrySet().iterator(); iterator.hasNext(); ) {
+            var entry = iterator.next();
+            var callbacks = entry.getValue();
+            var namespaceIterator = callbacks.iterator();
+            while (namespaceIterator.hasNext()) {
+                if (namespace.equals(namespaceIterator.next().namespace)) {
+                    namespaceIterator.remove();
+                    removedCount++;
+                }
+            }
+            if (callbacks.isEmpty()) {
+                iterator.remove();
+                wiredEvents.remove(entry.getKey());
+            }
+        }
+        PyFish.LOGGER.info("[PyFish/MCAPI] Cleared {} event callbacks for namespace '{}'", removedCount, namespace);
+    }
+
+    /**
+     * Gets the number of registered event callbacks for debugging and diagnostics.
+     */
+    public synchronized int getEventCallbackCount() {
+        return eventCallbacks.values().stream().mapToInt(List::size).sum();
+    }
+
+    /**
+     * Gets the number of registered event callbacks for a specific namespace.
+     */
+    public synchronized int getEventCallbackCountForNamespace(String namespace) {
+        return eventCallbacks.values().stream()
+                .flatMap(List::stream)
+                .filter(cb -> namespace.equals(cb.namespace))
+                .mapToInt(cb -> 1)
+                .sum();
     }
 
     private static final class EventCallback {

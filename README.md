@@ -25,6 +25,12 @@ It supports three main workflows:
 - Support for bundled `assets/` and `data/` resources in both external folders and `.pyz` mods
 - Pure-Python dependency installation through `requirements.txt`
 - Java-backed helper modules such as `requests`, `sqlite3`, `asyncio`, `logging`, `pathlib`, `websocket`, and more
+- **New**: Task scheduling for delayed and repeating operations
+- **New**: Decorator-based event registration syntax
+- **New**: Pythonic wrappers for Player and World objects
+- **New**: Administrative commands for script management and validation
+- **New**: Enhanced script reload with proper event cleanup
+- **New**: Resource validation tools
 
 ## Supported Environment
 
@@ -46,8 +52,11 @@ version.
 
 PyFish loads Python code from:
 
-- `pyfish/scripts/*.py`
-- `pyfish/<namespace>/scripts/*.py`
+- `pyfish/scripts/*.py` (global scripts)
+- `pyfish/<namespace>/startup/*.py` (startup scripts - run before registries freeze)
+- `pyfish/<namespace>/server/*.py` (server scripts - run on server start and reload)
+- `pyfish/<namespace>/client/*.py` (client scripts - run on client init and resource reload)
+- `pyfish/<namespace>/scripts/*.py` (fallback server scripts)
 - packaged `.pyz` mods placed in the Minecraft `mods/` folder
 - `src/main/resources/pyfish/...` inside loader JAR mods
 
@@ -56,7 +65,7 @@ Example instance layout:
 ```text
 .minecraft/
 |-- mods/
-|   |-- pyfish-neoforge-1.21.11-1.2.0.jar
+|   |-- pyfish-neoforge-1.21.11-1.2.5.jar
 |   `-- example_mod-1.0.0.pyz
 |-- config/
 `-- pyfish/
@@ -64,6 +73,12 @@ Example instance layout:
     |   `-- global_script.py
     `-- my_modpack/
         |-- requirements.txt
+        |-- startup/
+        |   `-- register_content.py
+        |-- server/
+        |   `-- events.py
+        |-- client/
+        |   `-- hud.py
         |-- assets/
         |   `-- my_modpack/
         |       `-- textures/
@@ -71,7 +86,7 @@ Example instance layout:
         |               `-- token.png
         |-- data/
         |   `-- my_modpack/
-        |       `-- recipes/
+        |       `-- recipe/
         |           `-- token.json
         `-- scripts/
             `-- level_up.py
@@ -89,14 +104,64 @@ Static resources follow the normal Minecraft layout:
 from pyfish import mc, log_print
 
 
+# Using the new decorator syntax
+@mc.event("on_player_join")
 def on_player_join(event):
-    player = event.getPlayer() or event.getEntity()
+    player = event.player if hasattr(event, 'player') else (event.getPlayer() or event.getEntity())
     if player is not None:
-        mc.send_message(player, "PyFish runtime OK")
+        wrapped_player = mc.wrap_player(player)
+        wrapped_player.send_message("PyFish runtime OK")
 
 
 log_print("Script loaded")
-mc.on("on_player_join", on_player_join)
+```
+
+## Administrative Commands
+
+PyFish provides in-game commands for server operators (OP level 2):
+
+- `/pyfish reload [server]` - Reload all scripts or only SERVER scripts
+- `/pyfish scripts` - List all discovered scripts and their status
+- `/pyfish status` - Show PyFish runtime status and statistics
+- `/pyfish validate` - Validate resources in pyfish directories
+- `/pyfish help` - Show help message
+
+## New API Features
+
+### Decorator-based Event Registration
+
+```python
+@mc.event("on_player_join")
+def on_player_join(event):
+    player = mc.wrap_player(event.player)
+    player.send_message("Welcome!")
+```
+
+### Task Scheduling
+
+```python
+@mc.event("on_server_starting")
+def on_server_starting(event):
+    # Schedule a delayed task (40 ticks = 2 seconds)
+    mc.schedule_delayed_task(event.server, 40, lambda: mc.broadcast_message(event.server, "Ready!"))
+
+    # Schedule a repeating task (every 100 ticks = 5 seconds)
+    mc.schedule_repeating_task(event.server, 100, announce_status)
+```
+
+### Pythonic Wrappers
+
+```python
+# Player wrapper with convenience methods
+player = mc.wrap_player(java_player)
+player.send_message("Hello!")
+player.heal()
+player.give_item("minecraft:diamond", 64)
+
+# World wrapper
+world = mc.wrap_world(java_world)
+world.set_block(0, 64, 0, "minecraft:stone")
+world.broadcast_message("Server message")
 ```
 
 ## Documentation

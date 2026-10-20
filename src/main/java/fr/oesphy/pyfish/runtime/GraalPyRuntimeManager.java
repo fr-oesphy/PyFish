@@ -6,12 +6,14 @@ import fr.oesphy.pyfish.content.PyFishResourceGenerator;
 import fr.oesphy.pyfish.content.PyFishScriptContext;
 import fr.oesphy.pyfish.platform.PlatformEventBridge;
 import fr.oesphy.pyfish.platform.PlatformPythonModuleLocator;
+import fr.oesphy.pyfish.script.ScriptManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.Value;
 import org.graalvm.python.embedding.GraalPyResources;
+import org.graalvm.python.embedding.VirtualFileSystem;
 import org.slf4j.Logger;
 
 import java.io.ByteArrayOutputStream;
@@ -31,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.jar.JarFile;
 
@@ -41,6 +44,13 @@ public class GraalPyRuntimeManager {
     private final MinecraftAPI minecraftAPI;
     private final PythonDependencyManager dependencyManager;
     private final PlatformPythonModuleLocator pythonModuleLocator;
+    private final Optional<Path> runtimeResourceRoot;
+
+    // New script management system (optional, can be used alongside legacy loading)
+    private ScriptManager scriptManager;
+
+    // Task scheduler for delayed and repeating tasks
+    private final TaskScheduler taskScheduler;
 
     // A single context keeps imported modules and Python callback objects alive between
     // Minecraft events. PYZ entrypoints still get their own globals in PyFishPyzExecutor.
@@ -48,17 +58,44 @@ public class GraalPyRuntimeManager {
     private final LoggingOutputStream stdout;
     private final LoggingOutputStream stderr;
 
-    public GraalPyRuntimeManager(PlatformPythonModuleLocator pythonModuleLocator, PlatformEventBridge eventBridge) {
+    public GraalPyRuntimeManager(
+            PlatformPythonModuleLocator pythonModuleLocator,
+            PlatformEventBridge eventBridge,
+            Optional<Path> runtimeResourceRoot) {
         this.pythonModuleLocator = pythonModuleLocator;
+        this.runtimeResourceRoot = runtimeResourceRoot;
         minecraftAPI = new MinecraftAPI(eventBridge);
         dependencyManager = new PythonDependencyManager();
+        taskScheduler = new TaskScheduler();
         stdout = new LoggingOutputStream(false);
         stderr = new LoggingOutputStream(true);
         LOGGER.info("[PyFish] GraalPyRuntimeManager initialized (Shared Context Mode).");
     }
 
+    /**
+     * Initializes the ScriptManager for enhanced script discovery and management.
+     * This is optional - the legacy script loading still works without it.
+     */
+    public void initScriptManager(Path instanceRoot) {
+        this.scriptManager = new ScriptManager(instanceRoot);
+        scriptManager.setRuntimeManager(this);
+        scriptManager.discoverScripts();
+        LOGGER.info("[PyFish] ScriptManager initialized with {} scripts", scriptManager.getTotalScriptCount());
+    }
+
+    /**
+     * Gets the ScriptManager, or null if not initialized.
+     */
+    public ScriptManager getScriptManager() {
+        return scriptManager;
+    }
+
     public MinecraftAPI getMinecraftAPI() {
         return minecraftAPI;
+    }
+
+    public TaskScheduler getTaskScheduler() {
+        return taskScheduler;
     }
 
     public void loadScript(String name, String code, String modId) {
@@ -71,10 +108,33 @@ public class GraalPyRuntimeManager {
         if (sharedContext == null) {
             LOGGER.info("[PyFish] Creating GraalPy context...");
 
+            Context ctx = null;
             try {
-                // GraalPyResources wires the language home and stdlib VFS. A plain
-                // Context builder works in development, then loses imports in packaged jars.
-                Context.Builder contextBuilder = GraalPyResources.contextBuilder()
+                Optional<GraalPyRuntimeResources.RuntimeHome> runtimeHome = runtimeResourceRoot.isPresent()
+                        ? GraalPyRuntimeResources.prepare(runtimeResourceRoot.get())
+                        : Optional.empty();
+
+                Context.Builder contextBuilder;
+                if (runtimeHome.isPresent()) {
+                    // Packaged mods use a real filesystem home. NeoForge's transformed
+                    // classloader cannot reliably serve GraalPy's internal resources.
+                    contextBuilder = Context.newBuilder()
+                            .option("python.PosixModuleBackend", "java")
+                            .option("python.DontWriteBytecodeFlag", "true")
+                            .option("python.ForceImportSite", "true")
+                            .option("python.CheckHashPycsMode", "never");
+                    runtimeHome.get().configure(contextBuilder);
+                    LOGGER.info("[PyFish] Using extracted GraalPy runtime: {}", runtimeHome.get().root());
+                } else {
+                    // Gradle development runs keep GraalPy as separate classpath entries.
+                    VirtualFileSystem virtualFileSystem = VirtualFileSystem.newBuilder()
+                            .resourceLoadingClass(GraalPyRuntimeManager.class)
+                            .build();
+                    contextBuilder = GraalPyResources.contextBuilder(virtualFileSystem);
+                    LOGGER.debug("[PyFish] Using classpath GraalPy resources for a development runtime.");
+                }
+
+                contextBuilder
                         .allowAllAccess(true)
                         .allowHostAccess(HostAccess.ALL)
                         .allowHostClassLookup(className -> true)
@@ -90,7 +150,11 @@ public class GraalPyRuntimeManager {
                         .option("python.IsolateNativeModules", "true")
                         .option("engine.WarnInterpreterOnly", "false");
 
-                Context ctx = contextBuilder.build();
+                if (runtimeResourceRoot.isEmpty()) {
+                    LOGGER.warn("[PyFish] Loader did not expose the PyFish resource root; using GraalPy discovery.");
+                }
+
+                ctx = contextBuilder.build();
                 initContext(ctx);
                 // Do not publish a half-initialized context: subsequent calls cannot repair
                 // a missing pyfish module or partially populated sys.modules.
@@ -98,6 +162,9 @@ public class GraalPyRuntimeManager {
 
                 LOGGER.info("[PyFish] GraalPy context created and initialized successfully.");
             } catch (Exception e) {
+                if (ctx != null) {
+                    ctx.close(true);
+                }
                 LOGGER.error("[PyFish] Failed to create or initialize GraalPy context", e);
                 throw new RuntimeException("Failed to initialize Python runtime", e);
             }
@@ -111,6 +178,8 @@ public class GraalPyRuntimeManager {
         // Force language initialization before injecting host objects. This keeps failures
         // attributable to GraalPy setup rather than to the first user script.
         context.eval("python", "print('[PyFish/Python] GraalPy Initializing...')");
+        context.eval("python", "import ast, json, queue, threading");
+        LOGGER.info("[PyFish] GraalPy standard library verified.");
 
         Value bindings = context.getBindings("python");
         bindings.putMember("log", LOGGER);
@@ -487,18 +556,31 @@ public class GraalPyRuntimeManager {
     }
 
     private void loadLogicalModDirectory(Path modDirectory, String modId) {
+        String normalizedModId = modId.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9_.-]", "_");
+        if (!normalizedModId.equals(modId)) {
+            LOGGER.warn("[PyFish] External mod folder '{}' uses namespace '{}' to satisfy Minecraft id rules.",
+                    modId, normalizedModId);
+        }
+
+        try {
+            PyFishResourceGenerator.addDirectoryResources(modDirectory, normalizedModId);
+        } catch (IOException exception) {
+            LOGGER.error("[PyFish] Failed to load resources for external mod '{}' from {}",
+                    normalizedModId, modDirectory, exception);
+        }
+
         Path requirementsFile = modDirectory.resolve("requirements.txt");
         if (Files.exists(requirementsFile)) {
             try {
-                dependencyManager.installDependencies(modId, Files.readString(requirementsFile));
+                dependencyManager.installDependencies(normalizedModId, Files.readString(requirementsFile));
             } catch (IOException e) {
-                LOGGER.error("[PyFish] Failed to read requirements for mod: {}", modId, e);
+                LOGGER.error("[PyFish] Failed to read requirements for mod: {}", normalizedModId, e);
             }
         }
 
         Path scriptsDirectory = modDirectory.resolve("scripts");
         if (Files.isDirectory(scriptsDirectory)) {
-            loadScriptsFromSubfolder(scriptsDirectory, modId);
+            loadScriptsFromSubfolder(scriptsDirectory, normalizedModId);
         }
     }
 

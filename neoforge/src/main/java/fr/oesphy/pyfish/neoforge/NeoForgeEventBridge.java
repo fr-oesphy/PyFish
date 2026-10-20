@@ -14,8 +14,10 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.neoforged.bus.api.Event;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
 
+import java.lang.reflect.Modifier;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 public class NeoForgeEventBridge implements PlatformEventBridge {
     private static final Map<String, String> EVENT_ALIASES = new HashMap<>();
@@ -78,11 +81,19 @@ public class NeoForgeEventBridge implements PlatformEventBridge {
         EVENT_ALIASES.put("on_server_stopping", "net.neoforged.neoforge.event.server.ServerStoppingEvent");
         EVENT_ALIASES.put("on_server_stopped", "net.neoforged.neoforge.event.server.ServerStoppedEvent");
         EVENT_ALIASES.put("on_server_tick", "net.neoforged.neoforge.event.tick.ServerTickEvent$Post");
+
+        // Special handling for server tick to update task scheduler
+        // This will be handled in the event wrapper
         EVENT_ALIASES.put("on_level_tick", "net.neoforged.neoforge.event.tick.LevelTickEvent$Post");
     }
 
     private final Map<String, List<Consumer<Object[]>>> dispatchers = new HashMap<>();
     private final Set<String> wiredEvents = new HashSet<>();
+    private final IEventBus modEventBus;
+
+    public NeoForgeEventBridge(IEventBus modEventBus) {
+        this.modEventBus = modEventBus;
+    }
 
     @Override
     public synchronized boolean registerEvent(String eventNameOrClass, Consumer<Object[]> dispatcher) {
@@ -108,6 +119,44 @@ public class NeoForgeEventBridge implements PlatformEventBridge {
         NeoForge.EVENT_BUS.addListener(typedEventClass,
                 event -> dispatch(resolvedEventName, new Object[] { event }));
         return true;
+    }
+
+    @Override
+    public synchronized boolean registerNativeEvent(
+            String alias,
+            String eventSource,
+            Function<Object[], Object> dispatcher) {
+        boolean modBusEvent = eventSource.startsWith("mod:");
+        String className = modBusEvent ? eventSource.substring("mod:".length()) : eventSource;
+        Class<?> eventClass;
+        try {
+            eventClass = resolveEventClass(className);
+        } catch (LinkageError | SecurityException exception) {
+            PyFish.LOGGER.warn("[PyFish] Could not load NeoForge event '{}': {}", className,
+                    exception.getMessage());
+            return false;
+        }
+        if (eventClass == null || !Event.class.isAssignableFrom(eventClass)
+                || Modifier.isAbstract(eventClass.getModifiers())) {
+            PyFish.LOGGER.warn("[PyFish] '{}' is not a concrete, loadable NeoForge event class", className);
+            return false;
+        }
+        IEventBus targetBus = modBusEvent ? modEventBus : NeoForge.EVENT_BUS;
+        if (targetBus == null) {
+            return false;
+        }
+
+        @SuppressWarnings("unchecked")
+        Class<? extends Event> typedEventClass = (Class<? extends Event>) eventClass;
+        try {
+            targetBus.addListener(typedEventClass,
+                    event -> dispatcher.apply(new Object[] { event }));
+            return true;
+        } catch (RuntimeException exception) {
+            PyFish.LOGGER.warn("[PyFish] Could not subscribe to NeoForge event '{}' as '{}': {}",
+                    className, alias, exception.getMessage());
+            return false;
+        }
     }
 
     private String resolveEventName(String eventNameOrClass) {

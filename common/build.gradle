@@ -30,6 +30,8 @@ def commonMainVersionedFiles = [
         rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularHoeItem.java').canonicalFile,
         rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularShovelItem.java').canonicalFile
 ]
+def commonMainPackVersionCompat = rootProject.file(
+        'src/main/java/fr/oesphy/pyfish/content/MinecraftPackVersionCompat.java').canonicalFile
 
 sourceSets {
     main {
@@ -39,7 +41,7 @@ sourceSets {
         }
         if (pyfish_version_profile_id == 'mc12111') {
             def mc1215IdentifierCompat = rootProject.file('src/mc1215/java/fr/oesphy/pyfish/compat/MinecraftIdentifierCompat.java').canonicalFile
-            java.exclude { details -> details.file.canonicalFile == mc1215IdentifierCompat }
+            java.exclude { details -> details.file.canonicalFile in [mc1215IdentifierCompat, commonMainPackVersionCompat] }
         }
         resources.srcDir(rootProject.file('src/main/resources'))
         resources.exclude('META-INF/**', 'pyfish.mixins.json', 'fabric.mod.json')
@@ -47,8 +49,8 @@ sourceSets {
     test {
         java.srcDir(project.file('src/test/java'))
         resources.srcDir(project.file('src/test/resources'))
-        compileClasspath += sourceSets.main.output
-        runtimeClasspath += sourceSets.main.output
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     }
 }
 
@@ -67,6 +69,7 @@ neoForge {
 dependencies {
     rootProject.ext.pyfishCompileOnlyLibraries.each {
         compileOnly it
+        testImplementation it
     }
     rootProject.ext.pyfishEmbeddedLibraries.each {
         implementation it

@@ -29,7 +29,16 @@ public final class PyFish {
 
         // Script entrypoints declare content, so this must stay in the loader's startup
         // phase while its registries can still accept registrations.
-        pythonRuntime = new GraalPyRuntimeManager(platform.getPythonModuleLocator(), platform.getEventBridge());
+        pythonRuntime = new GraalPyRuntimeManager(
+                platform.getPythonModuleLocator(),
+                platform.getEventBridge(),
+                platform.getRuntimeResourceRoot());
+
+        // Initialize the new ScriptManager for enhanced script discovery
+        Path instanceRoot = Paths.get(".");
+        pythonRuntime.initScriptManager(instanceRoot);
+
+        // Legacy script loading (still works alongside ScriptManager)
         pythonRuntime.loadScriptsFromResources("pyfish");
 
         Path externalScripts = Paths.get("pyfish");

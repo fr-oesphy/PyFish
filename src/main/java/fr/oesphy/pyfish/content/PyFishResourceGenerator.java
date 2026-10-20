@@ -15,6 +15,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -26,6 +28,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -38,6 +41,14 @@ public final class PyFishResourceGenerator {
     private static final Map<String, Map<String, String>> LOCALIZATIONS = new LinkedHashMap<>();
     private static final Map<String, Set<String>> GENERATED_ITEM_TAGS = new LinkedHashMap<>();
     private static final Map<String, Set<String>> GENERATED_BLOCK_TAGS = new LinkedHashMap<>();
+    private static final Set<String> CLIENT_RESOURCE_FOLDERS_REQUIRING_NAMESPACE = Set.of(
+            "atlases", "blockstates", "equipment", "font", "items", "lang", "models",
+            "particles", "post_effect", "shaders", "sounds", "textures", "waypoint_style");
+    private static final Set<String> SERVER_RESOURCE_FOLDERS_REQUIRING_NAMESPACE = Set.of(
+            "advancement", "banner_pattern", "chat_type", "damage_type", "dimension", "dimension_type",
+            "enchantment", "enchantment_provider", "instrument", "item_modifier", "jukebox_song", "loot_table",
+            "painting_variant", "predicate", "recipe", "tags", "trial_spawner", "trim_material", "trim_pattern",
+            "wolf_variant", "worldgen");
 
     static {
         GENERATED_RESOURCES.put(PackType.CLIENT_RESOURCES, new LinkedHashMap<>());
@@ -65,8 +76,32 @@ public final class PyFishResourceGenerator {
             return null;
         }
 
-        String value = rawId.trim();
-        return value.contains(":") ? value : defaultNamespace + ":" + value;
+        String value = rawId.trim().replace('\\', '/');
+        int separator = value.indexOf(':');
+        String namespace = separator >= 0 ? value.substring(0, separator) : defaultNamespace;
+        String path = separator >= 0 ? value.substring(separator + 1) : value;
+        if (path.startsWith("textures/")) {
+            path = path.substring("textures/".length());
+        }
+        if (path.endsWith(".png")) {
+            path = path.substring(0, path.length() - ".png".length());
+        }
+        return resolveIdentifier(namespace + ":" + path, defaultNamespace);
+    }
+
+    public static String preferTextureFolder(String textureId, String folder) {
+        if (textureId == null || textureId.isBlank()) {
+            return textureId;
+        }
+
+        String resolved = resolveIdentifier(textureId, PyFish.MODID);
+        String path = pathOf(resolved);
+        if (path.contains("/") || textureExists(resolved)) {
+            return resolved;
+        }
+
+        String conventional = namespaceOf(resolved) + ":" + folder + "/" + path;
+        return textureExists(conventional) ? conventional : resolved;
     }
 
     public static String namespaceOf(String id) {
@@ -152,6 +187,84 @@ public final class PyFishResourceGenerator {
         }
     }
 
+    public static synchronized void addDirectoryResources(Path modDirectory) throws IOException {
+        Path fileName = modDirectory.getFileName();
+        String namespace = fileName != null ? fileName.toString().toLowerCase(Locale.ROOT) : PyFish.MODID;
+        addDirectoryResources(modDirectory, namespace);
+    }
+
+    public static synchronized void addDirectoryResources(Path modDirectory, String defaultNamespace) throws IOException {
+        String namespace = Objects.requireNonNullElse(defaultNamespace, "").trim().toLowerCase(Locale.ROOT);
+        if (namespace.isEmpty()) {
+            namespace = PyFish.MODID;
+        }
+        Path assets = modDirectory.resolve("assets");
+        if (Files.isDirectory(assets.resolve("texture"), LinkOption.NOFOLLOW_LINKS)) {
+            PyFish.LOGGER.warn("[PyFish/Content] Ignoring assets/texture/ in '{}': expected "
+                    + "assets/{}/textures/ (namespace required, 'textures' plural).", modDirectory, namespace);
+        }
+
+        addDirectoryResources(assets, PackType.CLIENT_RESOURCES, namespace);
+        addDirectoryResources(modDirectory.resolve("data"), PackType.SERVER_DATA, namespace);
+    }
+
+    private static void addDirectoryResources(Path resourceRoot, PackType packType, String defaultNamespace)
+            throws IOException {
+        if (!Files.isDirectory(resourceRoot, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+
+        try (var resources = Files.walk(resourceRoot)) {
+            resources
+                    .filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                    .sorted()
+                    .forEach(path -> {
+                        String relativePath = resourceRoot.relativize(path).toString().replace('\\', '/');
+                        ResourceLocationParts resource = resourceLocationForExternalDirectory(
+                                packType, relativePath, defaultNamespace);
+                        if (resource == null) {
+                            PyFish.LOGGER.warn("[PyFish/Content] Ignoring resource outside a namespace: {}", path);
+                            return;
+                        }
+
+                        try {
+                            // Load authored files before scripts generate fallbacks. This mirrors PYZ
+                            // precedence and keeps the same layout usable during local development.
+                            addResourceIfAbsent(resource.packType(), resource.location(), Files.readAllBytes(path));
+                        } catch (IOException exception) {
+                            throw new DirectoryResourceException(path, exception);
+                        }
+                    });
+        } catch (DirectoryResourceException exception) {
+            throw new IOException("Unable to read external resource " + exception.path, exception.getCause());
+        }
+    }
+
+    private static ResourceLocationParts resourceLocationForExternalDirectory(
+            PackType packType, String relativePath, String defaultNamespace) {
+        int separator = relativePath.indexOf('/');
+        if (separator <= 0 || separator == relativePath.length() - 1) {
+            return null;
+        }
+
+        String firstFolder = relativePath.substring(0, separator);
+        if (packType == PackType.CLIENT_RESOURCES && "texture".equals(firstFolder)) {
+            return null;
+        }
+
+        Set<String> foldersRequiringNamespace = packType == PackType.CLIENT_RESOURCES
+                ? CLIENT_RESOURCE_FOLDERS_REQUIRING_NAMESPACE
+                : SERVER_RESOURCE_FOLDERS_REQUIRING_NAMESPACE;
+        if (foldersRequiringNamespace.contains(firstFolder)) {
+            String root = packType == PackType.CLIENT_RESOURCES ? "assets" : "data";
+            PyFish.LOGGER.warn("[PyFish/Content] Ignoring '{}': resource namespace is missing. Expected {}/{}/{}...",
+                    relativePath, root, defaultNamespace, firstFolder + "/");
+            return null;
+        }
+
+        return resourceLocationForArchiveEntry(packType, relativePath);
+    }
+
     public static void addLocalization(String id, String category, String displayName) {
         String resolvedId = resolveIdentifier(id, PyFish.MODID);
         String namespace = namespaceOf(resolvedId);
@@ -175,6 +288,7 @@ public final class PyFishResourceGenerator {
         String path = pathOf(resolvedId);
         String resolvedParent = parent != null && !parent.isBlank() ? parent : "minecraft:item/generated";
         String resolvedTexture = texture != null && !texture.isBlank() ? texture : namespace + ":" + path;
+        resolvedTexture = preferTextureFolder(resolvedTexture, "item");
 
         JsonObject root = new JsonObject();
         root.addProperty("parent", resolvedParent);
@@ -216,14 +330,15 @@ public final class PyFishResourceGenerator {
 
         if (textureDefinition instanceof String texture) {
             root.addProperty("parent", "minecraft:block/cube_all");
-            String resolvedTexture = resolveTextureReference(texture, namespace);
+            String resolvedTexture = preferTextureFolder(resolveTextureReference(texture, namespace), "block");
             textures.addProperty("all", resolvedTexture);
             textures.addProperty("particle", resolvedTexture);
         } else if (textureDefinition instanceof Map<?, ?> rawMap && !rawMap.isEmpty()) {
             Map<String, String> textureMap = new LinkedHashMap<>();
             rawMap.forEach((key, value) -> {
                 if (key != null && value != null) {
-                    textureMap.put(key.toString(), resolveTextureReference(value.toString(), namespace));
+                    textureMap.put(key.toString(), preferTextureFolder(
+                            resolveTextureReference(value.toString(), namespace), "block"));
                 }
             });
 
@@ -248,7 +363,7 @@ public final class PyFishResourceGenerator {
                 textures.addProperty("down", textureMap.getOrDefault("down", fallbackTexture));
             }
         } else {
-            String defaultTexture = namespace + ":" + path;
+            String defaultTexture = preferTextureFolder(namespace + ":" + path, "block");
             root.addProperty("parent", "minecraft:block/cube_all");
             textures.addProperty("all", defaultTexture);
             textures.addProperty("particle", defaultTexture);
@@ -313,6 +428,17 @@ public final class PyFishResourceGenerator {
                 PackType.CLIENT_RESOURCES,
                 namespaceOf(resolvedId) + ":textures/" + pathOf(resolvedId) + ".png",
                 data);
+    }
+
+    private static boolean textureExists(String textureId) {
+        String resolved = resolveIdentifier(textureId, PyFish.MODID);
+        String location = namespaceOf(resolved) + ":textures/" + pathOf(resolved) + ".png";
+        if (GENERATED_RESOURCES.get(PackType.CLIENT_RESOURCES).containsKey(location)) {
+            return true;
+        }
+
+        String classpathLocation = "assets/" + namespaceOf(resolved) + "/textures/" + pathOf(resolved) + ".png";
+        return PyFishResourceGenerator.class.getClassLoader().getResource(classpathLocation) != null;
     }
 
     public static List<String> getItemsByTag(String tagId) {
@@ -488,5 +614,14 @@ public final class PyFishResourceGenerator {
     }
 
     private record ResourceLocationParts(PackType packType, String location) {
+    }
+
+    private static final class DirectoryResourceException extends RuntimeException {
+        private final Path path;
+
+        private DirectoryResourceException(Path path, IOException cause) {
+            super(cause);
+            this.path = path;
+        }
     }
 }
