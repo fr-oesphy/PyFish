@@ -22,6 +22,7 @@ It supports three main workflows:
 - Shared Python API across Fabric and NeoForge
 - Event callbacks for player, world, interaction, lifecycle, and loader hooks
 - Dynamic content registration from Python for items, blocks, recipes, tabs, tags, and textures
+- Ore generation declared from Python for Fabric and NeoForge
 - Support for bundled `assets/` and `data/` resources in both external folders and `.pyz` mods
 - Pure-Python dependency installation through `requirements.txt`
 - Java-backed helper modules such as `requests`, `sqlite3`, `asyncio`, `logging`, `pathlib`, `websocket`, and more
@@ -56,7 +57,7 @@ Example instance layout:
 ```text
 .minecraft/
 |-- mods/
-|   |-- pyfish-neoforge-1.21.11-1.2.5.jar
+|   |-- pyfish-neoforge-1.21.11-1.2.6.jar
 |   `-- example_mod-1.0.0.pyz
 |-- config/
 `-- pyfish/
@@ -82,6 +83,48 @@ Static resources follow the normal Minecraft layout:
 - external namespace folders: `pyfish/<namespace>/assets/<namespace>/...` and `pyfish/<namespace>/data/<namespace>/...`
 - `.pyz` mods: `src/assets/<namespace>/...` and `src/data/<namespace>/...`
 - loader JAR mods: `src/main/resources/assets/<namespace>/...` and `src/main/resources/data/<namespace>/...`
+
+## Ore Generation
+
+Register the ore blocks first, then declare where they generate:
+
+```python
+from pyfish import blocks, ores
+
+blocks.register_block("tin_ore", {"texture": "block/tin_ore"})
+blocks.register_block("deepslate_tin_ore", {"texture": "block/deepslate_tin_ore"})
+
+ores.register_ore("tin_vein", {
+    "block": "tin_ore",
+    "deepslateBlock": "deepslate_tin_ore",
+    "size": 8,
+    "count": 12,
+    "minY": -32,
+    "maxY": 48,
+    "distribution": "trapezoid",
+    "biomes": "overworld",
+})
+```
+
+`size` controls vein size; `count` is the number of placement attempts per chunk.
+`distribution` accepts `uniform` or `trapezoid`. `biomes` accepts `overworld`,
+`nether`, `end`, a biome ID, a `#namespace:tag`, or a list of biome IDs. For
+custom host blocks, use `targets` instead of `block`/`deepslateBlock`, for
+example `[{"replaceable": "#minecraft:stone_ore_replaceables", "block": "tin_ore"}]`.
+Generation affects newly generated chunks; existing chunks are not rewritten.
+The height range selects vein origins; individual blocks can extend a few blocks
+beyond it.
+
+Ore integration tests run in actual Minecraft servers, with test code excluded
+from release JARs:
+
+```text
+.\gradlew.bat -PpyfishGameTests :fabric:runGameTest :neoforge:runGameTestServer
+.\gradlew.bat -PpyfishGameTests -PpyfishVersionProfile=mc12111 :fabric:runGameTest :neoforge:runGameTestServer
+```
+
+The suite checks fresh noise-generated chunks, stone/deepslate replacement,
+height constraints, untouched non-target blocks, and excluded biomes.
 
 ## Minimal Example
 

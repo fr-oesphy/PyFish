@@ -4,6 +4,8 @@ plugins {
     id 'com.gradleup.shadow'
 }
 
+apply from: rootProject.file('gradle/ore-gametest.gradle')
+
 sourceSets {
     main {
         java {
@@ -36,7 +38,11 @@ dependencies {
     rootProject.ext.pyfishEmbeddedLibraries.each {
         embed it
     }
-    jarJar(implementation("org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}")) {
+    def sqlite = implementation("org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}") {
+        // The loader provides SLF4J; SQLite's older API must not replace it in development runs.
+        exclude group: 'org.slf4j', module: 'slf4j-api'
+    }
+    jarJar(sqlite) {
         version {
             strictly '[3.40.0.0,4.0.0.0)'
             prefer rootProject.ext.pyfishSqliteJdbcVersion
@@ -71,6 +77,22 @@ neoForge {
     mods {
         "${mod_id}" {
             sourceSet sourceSets.main
+        }
+    }
+}
+
+if (providers.gradleProperty('pyfishGameTests').isPresent()) {
+    neoForge.mods {
+        pyfish_ore_tests { sourceSet sourceSets.gametest }
+    }
+    neoForge.runs {
+        gameTestServer {
+            type = 'gameTestServer'
+            sourceSet = sourceSets.gametest
+            gameDirectory = file("runs/ore-tests-${pyfish_version_profile_id}")
+            additionalRuntimeClasspathConfiguration.extendsFrom(configurations.embed)
+            systemProperty 'neoforge.gameTestServer', 'true'
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'pyfish_ore_tests'
         }
     }
 }

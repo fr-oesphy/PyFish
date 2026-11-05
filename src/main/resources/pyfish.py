@@ -222,6 +222,9 @@ class _PyFishContentModule:
         self.tabs = _ApiWrapper(bridge.getTabs(), {
             "create": "create"
         })
+        self.ores = _ApiWrapper(bridge.getOres(), {
+            "registerOre": "register_ore"
+        })
 
 class MinecraftAPI:
     """Python wrapper for the Minecraft API exposed from Java.
@@ -536,6 +539,7 @@ blocks = content.blocks
 tags = content.tags
 textures = content.textures
 tabs = content.tabs
+ores = content.ores
 
 __all__ = [
     "log_print",
@@ -588,4 +592,5 @@ __all__ = [
     "tags",
     "textures",
     "tabs",
+    "ores",
 ]

@@ -72,6 +72,10 @@ public final class PyFishContentManager {
                 PyFishResourceGenerator.pathOf(resolvedId), properties);
     }
 
+    public void registerOrePlacement(String featureId, OreBiomeSelection biomes) {
+        requireBackend().registerOrePlacement(featureId, biomes);
+    }
+
     private PyFishContentBackend requireBackend() {
         if (backend == null) {
             throw new IllegalStateException("PyFish content backend has not been bootstrapped yet");

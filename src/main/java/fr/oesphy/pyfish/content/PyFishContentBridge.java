@@ -2,6 +2,7 @@ package fr.oesphy.pyfish.content;
 
 import fr.oesphy.pyfish.content.api.PyFishContentAPI;
 import fr.oesphy.pyfish.content.api.RecipeAPI;
+import fr.oesphy.pyfish.content.api.OreAPI;
 import fr.oesphy.pyfish.content.api.TagAPI;
 import fr.oesphy.pyfish.content.api.TabsAPI;
 import fr.oesphy.pyfish.content.api.TextureAPI;
@@ -38,5 +39,9 @@ public final class PyFishContentBridge {
 
     public static TabsAPI getTabs() {
         return api().getTabs();
+    }
+
+    public static OreAPI getOres() {
+        return api().getOres();
     }
 }

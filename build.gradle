@@ -35,6 +35,7 @@ def versionProfileOverrides = [
         neoforge_version_selector         : activeVersionProfile.neoforge_version_selector,
         neoforge_dependency_version_range : activeVersionProfile.neoforge_dependency_version_range,
         fabric_api_version_selector       : activeVersionProfile.fabric_api_version_selector ?: '+',
+        fabric_loader_version             : activeVersionProfile.fabric_loader_version ?: findProperty('fabric_loader_version'),
         fabric_api_minecraft_suffix       : activeVersionProfile.fabric_api_minecraft_suffix
 ]
 
@@ -47,11 +48,14 @@ ext {
     pyfishEmbeddedLibraries = [
             "org.graalvm.sdk:graal-sdk:${graalPyVersion}",
             "org.graalvm.polyglot:polyglot:${graalPyVersion}",
-            "org.graalvm.polyglot:python-community:${graalPyVersion}",
-            "org.graalvm.polyglot:js-community:${graalPyVersion}",
+            // Loader development classpaths must contain JARs, not Graal's aggregate POM artifacts.
+            "org.graalvm.python:python-language:${graalPyVersion}",
+            "org.graalvm.python:python-resources:${graalPyVersion}",
+            "org.graalvm.js:js-language:${graalPyVersion}",
+            "org.graalvm.truffle:truffle-runtime:${graalPyVersion}",
             "org.graalvm.truffle:truffle-api:${graalPyVersion}",
             "org.graalvm.regex:regex:${graalPyVersion}",
-            "org.graalvm.python:python-embedding:${graalPyVersion}",
+            "org.graalvm.python:python-embedding:${graalPyVersion}@jar",
             'org.bouncycastle:bcprov-jdk18on:1.78.1',
             'org.bouncycastle:bcpkix-jdk18on:1.78.1'
     ]

@@ -1,0 +1,29 @@
+{
+  "dimensions": {
+    "minecraft:overworld": {
+      "type": "minecraft:overworld",
+      "generator": {
+        "type": "minecraft:flat",
+        "settings": {
+          "biome": "minecraft:plains",
+          "features": false,
+          "lakes": false,
+          "structure_overrides": [],
+          "layers": [
+            {"height": 1, "block": "minecraft:bedrock"},
+            {"height": 2, "block": "minecraft:dirt"},
+            {"height": 1, "block": "minecraft:grass_block"}
+          ]
+        }
+      }
+    },
+    "pyfish_ore_tests:overworld": {
+      "type": "minecraft:overworld",
+      "generator": {
+        "type": "minecraft:noise",
+        "settings": "minecraft:overworld",
+        "biome_source": {"type": "minecraft:fixed", "biome": "minecraft:plains"}
+      }
+    }
+  }
+}

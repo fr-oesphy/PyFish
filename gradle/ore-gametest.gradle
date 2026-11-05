@@ -1,0 +1,74 @@
+// Test code and fixtures are deliberately kept out of the published mod.
+if (providers.gradleProperty('pyfishGameTests').isPresent()) {
+    if (!(pyfish_version_profile_id in ['mc1211', 'mc12111'])) {
+        throw new GradleException('Ore GameTests support the mc1211 and mc12111 profiles.')
+    }
+    sourceSets {
+        gametest {
+            java.srcDir(rootProject.file('common/src/gameTest/java'))
+            java.srcDir(rootProject.file("common/src/gameTest/${pyfish_version_profile_id}/java"))
+            java.srcDir(project.file("src/gameTest/${pyfish_version_profile_id}/java"))
+            resources.setSrcDirs([
+                    rootProject.file('common/src/gameTest/resources'),
+                    rootProject.file("common/src/gameTest/${pyfish_version_profile_id}/resources"),
+                    project.file('src/gameTest/resources'),
+                    project.file("src/gameTest/${pyfish_version_profile_id}/resources")
+            ])
+            resources.exclude('pyfish/**')
+            compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+            runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+        }
+    }
+    configurations.gametestImplementation.extendsFrom(configurations.implementation)
+    configurations.gametestRuntimeOnly.extendsFrom(configurations.runtimeOnly)
+
+    def emptyStructure = tasks.register('generateOreTestStructure') {
+        def output = layout.buildDirectory.dir('generated/oreGameTestResources')
+        outputs.dir(output)
+        doLast {
+            def file = output.get().file('data/pyfish_ore_tests/structure/empty.nbt').asFile
+            file.parentFile.mkdirs()
+            // A one-block empty template; the test creates its own controlled terrain.
+            file.withOutputStream { raw ->
+                def stream = new DataOutputStream(new java.util.zip.GZIPOutputStream(raw))
+                stream.writeByte(10)
+                stream.writeUTF('')
+                stream.writeByte(3)
+                stream.writeUTF('DataVersion')
+                stream.writeInt(pyfish_version_profile_id == 'mc1211' ? 3955 : 4671)
+                stream.writeByte(9)
+                stream.writeUTF('size')
+                stream.writeByte(3)
+                stream.writeInt(3)
+                3.times { stream.writeInt(1) }
+                ['entities', 'blocks', 'palette'].each { name ->
+                    stream.writeByte(9)
+                    stream.writeUTF(name)
+                    stream.writeByte(10)
+                    stream.writeInt(0)
+                }
+                stream.writeByte(0)
+                stream.close()
+            }
+        }
+    }
+    sourceSets.gametest.resources.srcDir(emptyStructure)
+    tasks.named('processGametestResources') {
+        doFirst { delete(layout.buildDirectory.dir('resources/gametest/pyfish')) }
+    }
+
+    tasks.matching { it.name in ['runGameTest', 'runGameTestServer'] }.configureEach {
+        doFirst {
+            // Fresh chunks are essential: old region files could hide a broken generator.
+            ['world', 'gametestworld', 'gametestserver'].each { name ->
+                delete(project.file("runs/ore-tests-${pyfish_version_profile_id}/${name}"))
+            }
+            // External scripts exercise the same public path on both loaders, including
+            // FML versions that do not expose another mod's classpath resource directories.
+            copy {
+                from(rootProject.file('common/src/gameTest/resources/pyfish'))
+                into(project.file("runs/ore-tests-${pyfish_version_profile_id}/pyfish"))
+            }
+        }
+    }
+}

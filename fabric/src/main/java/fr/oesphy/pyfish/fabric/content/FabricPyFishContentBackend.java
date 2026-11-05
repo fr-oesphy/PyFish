@@ -2,27 +2,58 @@ package fr.oesphy.pyfish.fabric.content;
 
 import fr.oesphy.pyfish.PyFish;
 import fr.oesphy.pyfish.compat.MinecraftCompat;
+import fr.oesphy.pyfish.content.OreBiomeSelection;
 import fr.oesphy.pyfish.content.PyFishContentBackend;
 import fr.oesphy.pyfish.content.PyFishContentSupport;
 import fr.oesphy.pyfish.content.PyFishResourceGenerator;
 import fr.oesphy.pyfish.mixin.MappedRegistryAccessor;
+import net.fabricmc.fabric.api.biome.v1.BiomeModifications;
+import net.fabricmc.fabric.api.biome.v1.BiomeSelectionContext;
+import net.fabricmc.fabric.api.biome.v1.BiomeSelectors;
 import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.levelgen.GenerationStep;
+import net.minecraft.world.level.levelgen.placement.PlacedFeature;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 public final class FabricPyFishContentBackend implements PyFishContentBackend {
     private final Set<String> registeredIds = ConcurrentHashMap.newKeySet();
     private final Map<String, ResourceKey<CreativeModeTab>> tabTargets = new ConcurrentHashMap<>();
+
+    @Override
+    public void registerOrePlacement(String featureId, OreBiomeSelection biomes) {
+        Predicate<BiomeSelectionContext> selector = switch (biomes.kind()) {
+            case OVERWORLD -> BiomeSelectors.foundInOverworld();
+            case NETHER -> BiomeSelectors.foundInTheNether();
+            case END -> BiomeSelectors.foundInTheEnd();
+            case TAG -> {
+                TagKey<Biome> tag = MinecraftCompat.createTagKey(Registries.BIOME, biomes.values().get(0));
+                yield BiomeSelectors.tag(tag);
+            }
+            case BIOMES -> {
+                List<ResourceKey<Biome>> keys = biomes.values().stream()
+                        .map(id -> MinecraftCompat.<ResourceKey<Biome>>createResourceKey(Registries.BIOME, id))
+                        .toList();
+                yield BiomeSelectors.includeByKey(keys);
+            }
+        };
+        ResourceKey<PlacedFeature> feature = MinecraftCompat.createResourceKey(Registries.PLACED_FEATURE, featureId);
+        BiomeModifications.addFeature(selector, GenerationStep.Decoration.UNDERGROUND_ORES, feature);
+    }
 
     @Override
     public void registerItem(String namespace, String path, Map<String, Object> properties) {

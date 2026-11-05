@@ -9,6 +9,21 @@ configurations {
     implementation.extendsFrom(embed)
 }
 
+if (providers.gradleProperty('pyfishGameTests').isPresent()) {
+    fabricApi.configureTests {
+        createSourceSet = true
+        modId = 'pyfish_ore_tests'
+        enableClientGameTests = false
+        eula = true
+    }
+    loom.runs.gameTest {
+        runDir("runs/ore-tests-${pyfish_version_profile_id}")
+        vmArg '-Djava.awt.headless=true'
+    }
+}
+
+apply from: rootProject.file('gradle/ore-gametest.gradle')
+
 configurations.configureEach {
     resolutionStrategy.componentSelection {
         all { selection ->
@@ -49,7 +64,9 @@ dependencies {
     }
     modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
     modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version_selector}"
-    implementation "org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}"
+    implementation("org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}") {
+        exclude group: 'org.slf4j', module: 'slf4j-api'
+    }
     include "org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}"
 
     rootProject.ext.pyfishCompileOnlyLibraries.each {

@@ -1,7 +1,10 @@
 package fr.oesphy.pyfish.neoforge.content;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import fr.oesphy.pyfish.PyFish;
 import fr.oesphy.pyfish.compat.MinecraftCompat;
+import fr.oesphy.pyfish.content.OreBiomeSelection;
 import fr.oesphy.pyfish.content.PyFishContentBackend;
 import fr.oesphy.pyfish.content.PyFishContentSupport;
 import fr.oesphy.pyfish.content.PyFishResourceGenerator;
@@ -39,6 +42,32 @@ public final class NeoForgePyFishContentBackend implements PyFishContentBackend 
     private final Map<String, DeferredRegister<CreativeModeTab>> tabRegisters = new LinkedHashMap<>();
     private final Map<String, List<Supplier<? extends Item>>> tabMembers = new ConcurrentHashMap<>();
     private final Set<String> registeredIds = ConcurrentHashMap.newKeySet();
+
+    @Override
+    public void registerOrePlacement(String featureId, OreBiomeSelection biomes) {
+        JsonObject modifier = new JsonObject();
+        modifier.addProperty("type", "neoforge:add_features");
+        if (biomes.kind() == OreBiomeSelection.Kind.BIOMES) {
+            JsonArray ids = new JsonArray();
+            biomes.values().forEach(ids::add);
+            modifier.add("biomes", ids);
+        } else {
+            String selector = switch (biomes.kind()) {
+                case OVERWORLD -> "#c:is_overworld";
+                case NETHER -> "#c:is_nether";
+                case END -> "#c:is_end";
+                case TAG -> "#" + biomes.values().get(0);
+                case BIOMES -> throw new IllegalStateException("Handled above");
+            };
+            modifier.addProperty("biomes", selector);
+        }
+        modifier.addProperty("features", featureId);
+        modifier.addProperty("step", "underground_ores");
+        String namespace = PyFishResourceGenerator.namespaceOf(featureId);
+        String path = PyFishResourceGenerator.pathOf(featureId);
+        PyFishResourceGenerator.addDataTextResource(namespace + ":neoforge/biome_modifier/" + path + ".json",
+                modifier.toString());
+    }
 
     public NeoForgePyFishContentBackend(IEventBus modEventBus) {
         this.modEventBus = modEventBus;

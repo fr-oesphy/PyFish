@@ -12,4 +12,6 @@ public interface PyFishContentBackend {
     void registerBlock(String namespace, String path, Map<String, Object> blockProperties);
 
     void registerTab(String namespace, String path, Map<String, Object> properties);
+
+    void registerOrePlacement(String featureId, OreBiomeSelection biomes);
 }

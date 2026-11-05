@@ -129,6 +129,7 @@
     "neoforge_version_selector": "21.11.42",
     "neoforge_dependency_version_range": "[21.11.42,21.12)",
     "fabric_api_version_selector": "0.140.2+1.21.11",
+    "fabric_loader_version": "0.17.3",
     "fabric_api_minecraft_suffix": "+1.21.11"
   }
 }

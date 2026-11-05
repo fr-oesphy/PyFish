@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "id": "pyfish_ore_tests",
+  "version": "1.0.0",
+  "name": "PyFish Ore GameTests",
+  "environment": "*",
+  "entrypoints": {"fabric-gametest": ["fr.oesphy.pyfish.gametest.FabricOreGameTests"]}
+}

@@ -11,6 +11,7 @@ public final class PyFishContentAPI {
     private final TagAPI tags;
     private final TextureAPI textures;
     private final TabsAPI tabs;
+    private final OreAPI ores;
 
     public PyFishContentAPI(PyFishContentManager manager) {
         this.recipes = new RecipeAPI(manager);
@@ -19,6 +20,7 @@ public final class PyFishContentAPI {
         this.tags = new TagAPI(manager);
         this.textures = new TextureAPI(manager);
         this.tabs = new TabsAPI(manager);
+        this.ores = new OreAPI(manager);
     }
 
     public RecipeAPI getRecipes() {
@@ -43,5 +45,9 @@ public final class PyFishContentAPI {
 
     public TabsAPI getTabs() {
         return tabs;
+    }
+
+    public OreAPI getOres() {
+        return ores;
     }
 }
