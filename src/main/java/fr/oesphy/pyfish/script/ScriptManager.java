@@ -121,11 +121,16 @@ public final class ScriptManager {
     // -------------------------------------------------------------------------
 
     /**
-     * Clears all registered SERVER scripts, resetting the manager to an empty
-     * state ready for re-registration.
+     * Clears all registered scripts, resetting the manager to an empty state
+     * ready for re-registration.
      *
      * <p>STARTUP scripts are immutable: this method does nothing if
-     * {@link #getType()} is {@link ScriptType#STARTUP}.
+     * {@link #getType()} is {@link ScriptType#STARTUP}, since STARTUP scripts
+     * run once before registries freeze and cannot be reloaded.
+     *
+     * <p>SERVER and CLIENT managers both clear their scripts. The name
+     * {@code clearServerScripts} is kept for compatibility; use
+     * {@link #clearScripts()} as a clearer alias for CLIENT managers.
      */
     public void clearServerScripts() {
         if (type == ScriptType.STARTUP) {
@@ -134,6 +139,14 @@ public final class ScriptManager {
         }
         scripts.clear();
         LOGGER.info("[PyFish/ScriptManager] Cleared {} scripts (type={})", type, type);
+    }
+
+    /**
+     * Alias for {@link #clearServerScripts()} with a name that makes sense for
+     * CLIENT managers.  STARTUP managers are still immune.
+     */
+    public void clearScripts() {
+        clearServerScripts();
     }
 
     // -------------------------------------------------------------------------

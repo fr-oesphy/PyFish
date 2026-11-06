@@ -4,7 +4,9 @@ import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import fr.oesphy.pyfish.PyFish;
+import fr.oesphy.pyfish.PyFishPaths;
 import fr.oesphy.pyfish.script.ScriptError;
+import fr.oesphy.pyfish.script.ScriptLoader;
 import fr.oesphy.pyfish.script.ScriptManager;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -12,6 +14,7 @@ import net.minecraft.network.chat.Component;
 import org.graalvm.polyglot.Value;
 import org.slf4j.Logger;
 
+import java.nio.file.Paths;
 import java.util.List;
 
 /**
@@ -100,8 +103,11 @@ public final class PyFishCommands {
         LOGGER.info("[PyFish/Commands] /pyfish reload issued by {}", source.getTextName());
 
         try {
-            serverManager.clearServerScripts();
-            serverManager.runAll();
+            // Delegate to ScriptLoader.reload() so path discovery is consistent
+            // with the initial load. gameDir is resolved from the current working directory.
+            fr.oesphy.pyfish.script.ScriptLoader.reload(
+                    Paths.get(".").toAbsolutePath().normalize(),
+                    serverManager);
 
             List<ScriptError> errors = serverManager.collectErrors();
             int total  = serverManager.getScripts().size();
