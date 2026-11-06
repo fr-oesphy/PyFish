@@ -77,6 +77,14 @@ public final class BindingRegistry {
         } catch (Exception e) {
             LOGGER.warn("[PyFish/BindingRegistry] Failed to inject 'events': {}", e.getMessage());
         }
+
+        // --- scheduler -------------------------------------------------------
+        try {
+            bindings.putMember("scheduler", fr.oesphy.pyfish.api.util.TickScheduler.SERVER);
+            LOGGER.debug("[PyFish/BindingRegistry] Injected binding: scheduler");
+        } catch (Exception e) {
+            LOGGER.warn("[PyFish/BindingRegistry] Failed to inject 'scheduler': {}", e.getMessage());
+        }
     }
 
     // -------------------------------------------------------------------------
