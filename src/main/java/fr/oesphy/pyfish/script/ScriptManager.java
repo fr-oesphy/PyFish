@@ -277,11 +277,10 @@ public final class ScriptManager {
     private void injectConsoleBinding() {
         try {
             runtime.runSafe(() -> {
-                Value bindings = runtime.getContext().getBindings("python");
-                bindings.putMember("console", console);
+                BindingRegistry.injectAll(runtime.getContext(), console);
             });
         } catch (Exception e) {
-            LOGGER.warn("[PyFish/ScriptManager] Failed to inject console binding: {}", e.getMessage());
+            LOGGER.warn("[PyFish/ScriptManager] Failed to inject bindings: {}", e.getMessage());
         }
     }
 }

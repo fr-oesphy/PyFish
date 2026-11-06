@@ -113,21 +113,50 @@ public final class ConsoleApi {
      * messages include the script name in their prefix.
      *
      * <p>Must be paired with {@link #popScript()}.
+     * <p>Also updates the thread-local current-script name so that
+     * classes outside this package (e.g. {@link fr.oesphy.pyfish.event.EventHandler})
+     * can query it via {@link #currentScriptStatic()}.
      *
      * @param scriptName the {@link ScriptFile#qualifiedName()} being executed
      */
     public void pushScript(String scriptName) {
-        scriptStack.push(Objects.requireNonNullElse(scriptName, "<unknown>"));
+        String name = Objects.requireNonNullElse(scriptName, "<unknown>");
+        scriptStack.push(name);
+        CURRENT_SCRIPT.set(name);
     }
 
     /**
      * Marks the end of the innermost script's execution.
      * Safe to call even when the stack is empty.
+     * Also pops the thread-local to the previous value (or clears it).
      */
     public void popScript() {
         if (!scriptStack.isEmpty()) {
             scriptStack.pop();
         }
+        String next = scriptStack.peek();
+        CURRENT_SCRIPT.set(next != null ? next : "");
+    }
+
+    // -------------------------------------------------------------------------
+    // Static thread-local tracking — for use by other packages (e.g. EventHandler)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Thread-local that mirrors the top of {@link #scriptStack}.
+     * Updated by {@link #pushScript}/{@link #popScript} on the same thread.
+     */
+    private static final ThreadLocal<String> CURRENT_SCRIPT = ThreadLocal.withInitial(() -> "");
+
+    /**
+     * Returns the qualified name of the script currently executing on this
+     * thread, or {@code ""} if no script is running.
+     *
+     * <p>May be called from any class (e.g. {@link fr.oesphy.pyfish.event.EventHandler})
+     * that needs to associate a log entry with the active script.
+     */
+    public static String currentScriptStatic() {
+        return CURRENT_SCRIPT.get();
     }
 
     // -------------------------------------------------------------------------
