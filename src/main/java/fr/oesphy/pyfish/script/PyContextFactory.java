@@ -172,11 +172,15 @@ public final class PyContextFactory {
     }
 
     private static void applyCommonOptions(Context.Builder builder, OutputStream out, OutputStream err) {
+        // Phase 6: use ClassFilter for host class lookup.
+        // allowJavaInterop=true (config) → pass everything through (ClassFilter still blocks dangerous);
+        // allowJavaInterop=false          → only ClassFilter-approved names are reachable.
+        boolean allowJavaInterop = fr.oesphy.pyfish.CommonProperties.get().allowJavaInterop();
         builder
-                // Phase 1: fully open. Phase 6 narrows this to a HostAccess allowlist.
                 .allowAllAccess(true)
                 .allowHostAccess(HostAccess.ALL)
-                .allowHostClassLookup(className -> true)
+                .allowHostClassLookup(className ->
+                        allowJavaInterop || ClassFilter.DEFAULT.isAllowed(className))
                 // PYZ mods are trusted local code; GraalPy also needs this for its own native libs.
                 .allowNativeAccess(true)
                 // Windows launcher setups sometimes provide no CWD; GraalPy rejects that.

@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import fr.oesphy.pyfish.PyFish;
 import fr.oesphy.pyfish.PyFishPaths;
+import fr.oesphy.pyfish.script.PipManager;
 import fr.oesphy.pyfish.script.ScriptError;
 import fr.oesphy.pyfish.script.ScriptLoader;
 import fr.oesphy.pyfish.script.ScriptManager;
@@ -85,6 +86,22 @@ public final class PyFishCommands {
                 // /pyfish version
                 .then(Commands.literal("version")
                         .executes(PyFishCommands::executeVersion))
+
+                // /pyfish packages — list pip-managed packages (op level 2)
+                .then(Commands.literal("packages")
+                        .executes(PyFishCommands::executePackages))
+
+                // /pyfish pip — package management (op level 4)
+                .then(Commands.literal("pip")
+                        .requires(src -> src.hasPermission(4))
+                        .then(Commands.literal("install")
+                                .then(Commands.argument("package", StringArgumentType.string())
+                                        .executes(PyFishCommands::executePipInstall)))
+                        .then(Commands.literal("uninstall")
+                                .then(Commands.argument("package", StringArgumentType.string())
+                                        .executes(PyFishCommands::executePipUninstall)))
+                        .then(Commands.literal("list")
+                                .executes(PyFishCommands::executePipList)))
         );
 
         LOGGER.debug("[PyFish/Commands] /pyfish command tree registered.");
@@ -198,6 +215,46 @@ public final class PyFishCommands {
                 () -> Component.literal("[PyFish] PyFish (mod id: " + PyFish.MODID + ") — GraalPy " + graalPyVersion),
                 false);
         return 1;
+    }
+
+    private static int executePackages(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        java.util.List<PipManager.PackageEntry> pkgs = PipManager.INSTANCE.list();
+        if (pkgs.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("[PyFish] No pip packages installed."), false);
+            return 0;
+        }
+        source.sendSuccess(
+                () -> Component.literal("[PyFish] Installed packages (" + pkgs.size() + "):"),
+                false);
+        for (int i = 0; i < pkgs.size(); i++) {
+            final PipManager.PackageEntry pkg = pkgs.get(i);
+            final int idx = i + 1;
+            source.sendSuccess(() -> Component.literal("  " + idx + ". " + pkg.freezeFormat()), false);
+        }
+        return pkgs.size();
+    }
+
+    private static int executePipInstall(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        String packageSpec = StringArgumentType.getString(ctx, "package");
+        LOGGER.info("[PyFish/Commands] /pyfish pip install '{}' by {}", packageSpec, source.getTextName());
+        String result = PipManager.INSTANCE.install(packageSpec);
+        source.sendSuccess(() -> Component.literal("[PyFish/pip] " + result), true);
+        return 1;
+    }
+
+    private static int executePipUninstall(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        String packageName = StringArgumentType.getString(ctx, "package");
+        LOGGER.info("[PyFish/Commands] /pyfish pip uninstall '{}' by {}", packageName, source.getTextName());
+        String result = PipManager.INSTANCE.uninstall(packageName);
+        source.sendSuccess(() -> Component.literal("[PyFish/pip] " + result), true);
+        return 1;
+    }
+
+    private static int executePipList(CommandContext<CommandSourceStack> ctx) {
+        return executePackages(ctx);
     }
 
     // -------------------------------------------------------------------------
