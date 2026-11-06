@@ -1,18 +1,21 @@
 // Test code and fixtures are deliberately kept out of the published mod.
 if (providers.gradleProperty('pyfishGameTests').isPresent()) {
-    if (!(pyfish_version_profile_id in ['mc1211', 'mc12111'])) {
-        throw new GradleException('Ore GameTests support the mc1211 and mc12111 profiles.')
+    def structureDataVersions = [mc1211: 3955, mc12111: 4671, mc262: 4903]
+    if (!structureDataVersions.containsKey(pyfish_version_profile_id)) {
+        throw new GradleException('Ore GameTests support the mc1211, mc12111 and mc262 profiles.')
     }
+    // These profiles share the GameTest registration API, but not the structure data version.
+    def fixtureProfile = pyfish_version_profile_id in ['mc12111', 'mc262'] ? 'mc12111_mc262' : pyfish_version_profile_id
     sourceSets {
         gametest {
             java.srcDir(rootProject.file('common/src/gameTest/java'))
-            java.srcDir(rootProject.file("common/src/gameTest/${pyfish_version_profile_id}/java"))
-            java.srcDir(project.file("src/gameTest/${pyfish_version_profile_id}/java"))
+            java.srcDir(rootProject.file("common/src/gameTest/${fixtureProfile}/java"))
+            java.srcDir(project.file("src/gameTest/${fixtureProfile}/java"))
             resources.setSrcDirs([
                     rootProject.file('common/src/gameTest/resources'),
-                    rootProject.file("common/src/gameTest/${pyfish_version_profile_id}/resources"),
+                    rootProject.file("common/src/gameTest/${fixtureProfile}/resources"),
                     project.file('src/gameTest/resources'),
-                    project.file("src/gameTest/${pyfish_version_profile_id}/resources")
+                    project.file("src/gameTest/${fixtureProfile}/resources")
             ])
             resources.exclude('pyfish/**')
             compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
@@ -24,6 +27,7 @@ if (providers.gradleProperty('pyfishGameTests').isPresent()) {
 
     def emptyStructure = tasks.register('generateOreTestStructure') {
         def output = layout.buildDirectory.dir('generated/oreGameTestResources')
+        inputs.property('dataVersion', structureDataVersions[pyfish_version_profile_id])
         outputs.dir(output)
         doLast {
             def file = output.get().file('data/pyfish_ore_tests/structure/empty.nbt').asFile
@@ -35,7 +39,7 @@ if (providers.gradleProperty('pyfishGameTests').isPresent()) {
                 stream.writeUTF('')
                 stream.writeByte(3)
                 stream.writeUTF('DataVersion')
-                stream.writeInt(pyfish_version_profile_id == 'mc1211' ? 3955 : 4671)
+                stream.writeInt(structureDataVersions[pyfish_version_profile_id])
                 stream.writeByte(9)
                 stream.writeUTF('size')
                 stream.writeByte(3)

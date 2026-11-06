@@ -131,5 +131,23 @@
     "fabric_api_version_selector": "0.140.2+1.21.11",
     "fabric_loader_version": "0.17.3",
     "fabric_api_minecraft_suffix": "+1.21.11"
+  },
+  "mc262": {
+    "minecraft_version": "26.2",
+    "minecraft_dependency_version": "26.2",
+    "minecraft_version_range": "[26.2,26.3)",
+    "minecraft_artifact_target": "26.2",
+    "minecraft_supported_versions_label": "26.2",
+    "java_version": 25,
+    "minecraft_obfuscated": false,
+    "fabric_loom_version": "1.17.21",
+    "moddev_version": "2.0.148",
+    "shadow_version": "9.6.1",
+    "neo_form_version_selector": "26.2-2",
+    "neoforge_version_selector": "26.2.0.93",
+    "neoforge_dependency_version_range": "[26.2.0.93,26.3)",
+    "fabric_api_version_selector": "0.161.0+26.2",
+    "fabric_loader_version": "0.20.1",
+    "fabric_api_minecraft_suffix": "+26.2"
   }
 }

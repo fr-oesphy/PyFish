@@ -12,6 +12,17 @@ permissions:
 
 jobs:
   quick-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: mc1211
+            java: '21'
+          - profile: mc12111
+            java: '21'
+          - profile: mc262
+            java: '25'
+    name: Verify ${{ matrix.profile }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -20,10 +31,10 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Setup JDK 21
+      - name: Setup JDK ${{ matrix.java }}
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: ${{ matrix.java }}
           distribution: temurin
 
       - name: Setup Gradle
@@ -36,7 +47,4 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Run quick verification
-        run: ./gradlew quickCheck --stacktrace
-
-      - name: Build all profiles with Gradle
-        run: ./gradlew buildAllVersionProfiles
+        run: ./gradlew -PpyfishVersionProfile=${{ matrix.profile }} quickCheck --stacktrace

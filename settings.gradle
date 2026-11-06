@@ -1,4 +1,20 @@
 pluginManagement {
+    def profileId = providers.gradleProperty('pyfishVersionProfile')
+            .orElse(providers.gradleProperty('default_version_profile')).getOrElse('mc1211')
+    def profiles = new groovy.json.JsonSlurper().parse(file('gradle/version-profiles.json'))
+    def toolVersions = profiles[profileId] ?: [:]
+    resolutionStrategy {
+        eachPlugin {
+            def field = [
+                    'net.fabricmc.fabric-loom-remap': 'fabric_loom_version',
+                    'net.neoforged.moddev': 'moddev_version',
+                    'com.gradleup.shadow': 'shadow_version'
+            ][requested.id.id]
+            if (field && toolVersions[field]) {
+                useVersion(toolVersions[field])
+            }
+        }
+    }
     repositories {
         gradlePluginPortal()
         mavenCentral()

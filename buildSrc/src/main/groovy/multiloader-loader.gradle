@@ -12,9 +12,12 @@ configurations {
 }
 
 dependencies {
-    compileOnly(project(':common')) {
-        capabilities {
-            requireCapability "$group:$mod_id"
+    // Plain Loom scans dependencies as JARs. Common code is already compiled from commonJava.
+    if (minecraft_obfuscated) {
+        compileOnly(project(':common')) {
+            capabilities {
+                requireCapability "$group:$mod_id"
+            }
         }
     }
     commonJava project(path: ':common', configuration: 'commonJava')

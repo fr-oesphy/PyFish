@@ -2,7 +2,7 @@
 
 ![PyFish Logo](https://cdn.modrinth.com/data/bdP4b2gP/a01bf99421098f66b65ad2d4006a5337a18a58f0.png)
 
-[![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1--1.21.11-brightgreen.svg)](https://www.minecraft.net/)
+[![Minecraft](https://img.shields.io/badge/Minecraft-1.21.x%20%7C%2026.2-brightgreen.svg)](https://www.minecraft.net/)
 [![Fabric](https://img.shields.io/badge/Fabric-Multi--profile-yellow.svg)](https://fabricmc.net/)
 [![NeoForge](https://img.shields.io/badge/NeoForge-Multi--profile-orange.svg)](https://neoforged.net/)
 [![Python](https://img.shields.io/badge/Python-GraalPy-blue.svg)](https://graalpy.org/jvm-developers/)
@@ -29,8 +29,8 @@ It supports three main workflows:
 
 ## Supported Environment
 
-- Minecraft `1.21.1` through `1.21.11`
-- Java `21`
+- Minecraft `1.21.1` through `1.21.11`, and `26.2`
+- Java `21` for 1.21.x; Java `25` for 26.2
 - Fabric Loader or NeoForge matching the selected build profile
 
 ## Installation
@@ -121,9 +121,11 @@ from release JARs:
 ```text
 .\gradlew.bat -PpyfishGameTests :fabric:runGameTest :neoforge:runGameTestServer
 .\gradlew.bat -PpyfishGameTests -PpyfishVersionProfile=mc12111 :fabric:runGameTest :neoforge:runGameTestServer
+.\gradlew.bat -PpyfishGameTests -PpyfishVersionProfile=mc262 :fabric:runGameTest :neoforge:runGameTestServer
 ```
 
-The suite checks fresh noise-generated chunks, stone/deepslate replacement,
+The GameTest suite targets `mc1211`, `mc12111` and `mc262` (JDK 25). It checks
+fresh noise-generated chunks, stone/deepslate replacement,
 height constraints, untouched non-target blocks, and excluded biomes.
 
 ## Minimal Example
@@ -165,12 +167,22 @@ Useful commands:
 - `.\gradlew.bat -PpyfishVersionProfile=mc1211 quickCheck`
 - `.\gradlew.bat build`
 - `.\gradlew.bat -PpyfishVersionProfile=mc12111 build`
+- `.\gradlew.bat -PpyfishVersionProfile=mc262 build`
 - `.\gradlew.bat buildAllVersionProfiles`
 
-`quickCheck` is intended as the fast contributor workflow. It runs the shared
-tests plus the selected loader compile tasks for the active version profile.
+`quickCheck` runs shared tests and smoke-tests the packaged Python runtime for
+each selected loader.
 `build` builds only the selected version profile. Use `buildAllVersionProfiles`
 when you intentionally want the full release matrix.
+
+For `mc262`, run Gradle with JDK 25 (set the IDE's Gradle JVM or `JAVA_HOME`).
+The profile selects the Java 25 compiler, loader versions and unobfuscated
+Fabric packaging automatically. Older profiles retain Java 21 and Fabric
+remapping. Outputs are kept separately in `build/profiles/<profile>/`.
+
+Minecraft 26.2 uses world clocks. The Python time helpers read and update the
+dimension's default clock, falling back to the Overworld clock when there is
+no dimension-specific clock.
 
 ## Contributing
 

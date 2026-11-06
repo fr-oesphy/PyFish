@@ -1,8 +1,9 @@
 plugins {
     id 'multiloader-loader'
-    id 'net.fabricmc.fabric-loom-remap'
     id 'com.gradleup.shadow'
 }
+
+apply plugin: minecraft_obfuscated ? 'net.fabricmc.fabric-loom-remap' : 'net.fabricmc.fabric-loom'
 
 configurations {
     embed
@@ -44,13 +45,21 @@ sourceSets {
             if (pyfish_version_profile_id == 'mc1211') {
                 fabricVersionedSrcDir = 'src/mc1211/java'
             } else if (pyfish_version_profile_id in ['mc1212', 'mc1213']) {
-                fabricVersionedSrcDir = 'src/mc1212/java'
-            } else if (pyfish_version_profile_id == 'mc12111') {
-                fabricVersionedSrcDir = 'src/mc12111/java'
+                fabricVersionedSrcDir = 'src/shared/mc1212-mc1213/java'
+            } else if (pyfish_version_profile_id in ['mc12111', 'mc262']) {
+                fabricVersionedSrcDir = 'src/shared/mc12111_mc262/java'
             }
             if (fabricVersionedSrcDir != null) {
                 srcDir fabricVersionedSrcDir
                 exclude { details -> details.file.canonicalFile == fabricMainRuntimePackFile }
+            }
+            if (pyfish_version_profile_id == 'mc262') {
+                srcDir 'src/mc262/java'
+                def overlay = file('src/mc262/java').canonicalFile
+                exclude { details ->
+                    !details.file.canonicalPath.startsWith(overlay.path + File.separator) &&
+                            new File(overlay, details.relativePath.pathString).isFile()
+                }
             }
         }
     }
@@ -58,12 +67,17 @@ sourceSets {
 
 dependencies {
     minecraft "com.mojang:minecraft:${minecraft_version}"
-    mappings loom.layered {
-        officialMojangMappings()
-        parchment("org.parchmentmc.data:parchment-${parchment_minecraft}:${parchment_version}@zip")
+    if (minecraft_obfuscated) {
+        mappings loom.layered {
+            officialMojangMappings()
+            parchment("org.parchmentmc.data:parchment-${parchment_minecraft}:${parchment_version}@zip")
+        }
+        modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version_selector}"
+    } else {
+        implementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version_selector}"
     }
-    modImplementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version_selector}"
     implementation("org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}") {
         exclude group: 'org.slf4j', module: 'slf4j-api'
     }
@@ -78,8 +92,10 @@ dependencies {
 }
 
 loom {
-    mixin {
-        defaultRefmapName.set("${mod_id}.refmap.json")
+    if (minecraft_obfuscated) {
+        mixin {
+            defaultRefmapName.set("${mod_id}.refmap.json")
+        }
     }
     runs {
         client {
@@ -122,29 +138,43 @@ shadowJar {
 
     zip64 = true
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    filesMatching('META-INF/services/**') { duplicatesStrategy = DuplicatesStrategy.INCLUDE }
 }
 
 jar {
     archiveClassifier = 'dev'
 }
 
-remapJar {
-    dependsOn shadowJar
-    inputFile.set(shadowJar.archiveFile)
-    archiveClassifier = ''
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+if (minecraft_obfuscated) {
+    tasks.named('remapJar') {
+        dependsOn shadowJar
+        inputFile.set(shadowJar.archiveFile)
+        archiveClassifier = ''
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
+
+    tasks.named('remapSourcesJar') {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
 }
 
-remapSourcesJar {
+def runtimeJar = minecraft_obfuscated ? tasks.named('remapJar') : tasks.register('runtimeJar', Jar) {
+    dependsOn shadowJar, jar
+    archiveClassifier = ''
+    from({ zipTree(shadowJar.archiveFile.get().asFile) }) { exclude 'fabric.mod.json' }
+    // Plain Loom injects the nested-JAR declarations into jar, not shadowJar.
+    from({ zipTree(jar.archiveFile.get().asFile) }) { include 'fabric.mod.json', 'META-INF/jars/**' }
+    manifest { attributes 'Multi-Release': 'true' }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    zip64 = true
 }
 
 def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
-    dependsOn remapJar
-    inputs.file(remapJar.archiveFile)
+    dependsOn runtimeJar
+    inputs.file(runtimeJar.flatMap { it.archiveFile })
 
     doLast {
-        def jarFile = remapJar.archiveFile.get().asFile
+        def jarFile = runtimeJar.get().archiveFile.get().asFile
         def requiredEntries = [
                 'org.graalvm.python.vfs/fileslist.txt',
                 'pyfish.py',
@@ -191,6 +221,10 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
             if (nestedSqlite == null) {
                 throw new GradleException('PyFish Fabric jar is missing the nested SQLite JDBC driver.')
             }
+            def modMetadata = new groovy.json.JsonSlurper().parse(zip.getInputStream(zip.getEntry('fabric.mod.json')))
+            if (!(modMetadata.jars ?: []).any { it.file == nestedSqlite.name }) {
+                throw new GradleException('PyFish Fabric metadata does not declare the nested SQLite JDBC driver.')
+            }
             def nestedZip = new java.util.zip.ZipInputStream(zip.getInputStream(nestedSqlite))
             try {
                 def containsDriver = false
@@ -214,16 +248,19 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
 }
 
 def smokeTestPyFishRuntimeJar = tasks.register('smokeTestPyFishRuntimeJar', JavaExec) {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(java_version)
+    }
     dependsOn verifyPyFishRuntimeJar, project(':common').tasks.named('testClasses')
     mainClass = 'fr.oesphy.pyfish.runtime.GraalPyRuntimeJarSmokeTest'
-    classpath = files(project(':common').sourceSets.test.output.classesDirs, remapJar.archiveFile)
+    classpath = files(project(':common').sourceSets.test.output.classesDirs, runtimeJar.flatMap { it.archiveFile })
     doFirst {
         delete(layout.buildDirectory.dir('tmp/graalpy-runtime-smoke'))
-        args remapJar.archiveFile.get().asFile.absolutePath,
+        args runtimeJar.get().archiveFile.get().asFile.absolutePath,
                 layout.buildDirectory.dir('tmp/graalpy-runtime-smoke').get().asFile.absolutePath
     }
 }
 
 build.dependsOn smokeTestPyFishRuntimeJar
 
-build.dependsOn remapJar, verifyPyFishRuntimeJar
+build.dependsOn runtimeJar, verifyPyFishRuntimeJar

@@ -14,13 +14,21 @@ sourceSets {
             if (pyfish_version_profile_id == 'mc1211') {
                 neoForgeVersionedSrcDir = 'src/mc1211/java'
             } else if (pyfish_version_profile_id in ['mc1212', 'mc1213']) {
-                neoForgeVersionedSrcDir = 'src/mc1212/java'
-            } else if (pyfish_version_profile_id == 'mc12111') {
-                neoForgeVersionedSrcDir = 'src/mc12111/java'
+                neoForgeVersionedSrcDir = 'src/shared/mc1212-mc1213/java'
+            } else if (pyfish_version_profile_id in ['mc12111', 'mc262']) {
+                neoForgeVersionedSrcDir = 'src/shared/mc12111_mc262/java'
             }
             if (neoForgeVersionedSrcDir != null) {
                 srcDir neoForgeVersionedSrcDir
                 exclude { details -> details.file.canonicalFile == neoForgeMainRuntimePackFile }
+            }
+            if (pyfish_version_profile_id == 'mc262') {
+                srcDir 'src/mc262/java'
+                def overlay = file('src/mc262/java').canonicalFile
+                exclude { details ->
+                    !details.file.canonicalPath.startsWith(overlay.path + File.separator) &&
+                            new File(overlay, details.relativePath.pathString).isFile()
+                }
             }
         }
     }
@@ -52,9 +60,11 @@ dependencies {
 
 neoForge {
     version = neoforge_version_selector
-    parchment {
-        minecraftVersion = parchment_minecraft
-        mappingsVersion = parchment_version
+    if (minecraft_obfuscated) {
+        parchment {
+            minecraftVersion = parchment_minecraft
+            mappingsVersion = parchment_version
+        }
     }
     runs {
         configureEach {
@@ -65,7 +75,11 @@ neoForge {
             client()
         }
         data {
-            data()
+            if (minecraft_obfuscated) {
+                data()
+            } else {
+                clientData()
+            }
             programArguments.addAll '--mod', mod_id, '--all',
                     '--output', rootProject.file('src/generated/resources').absolutePath,
                     '--existing', rootProject.file('src/main/resources').absolutePath
@@ -132,6 +146,7 @@ shadowJar {
 
     zip64 = true
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    filesMatching('META-INF/services/**') { duplicatesStrategy = DuplicatesStrategy.INCLUDE }
 }
 
 def runtimeJar = tasks.register('runtimeJar', Jar) {
@@ -220,6 +235,9 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
 }
 
 def smokeTestPyFishRuntimeJar = tasks.register('smokeTestPyFishRuntimeJar', JavaExec) {
+    javaLauncher = javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(java_version)
+    }
     dependsOn verifyPyFishRuntimeJar, project(':common').tasks.named('testClasses')
     mainClass = 'fr.oesphy.pyfish.runtime.GraalPyRuntimeJarSmokeTest'
     classpath = files(project(':common').sourceSets.test.output.classesDirs, runtimeJar.flatMap { it.archiveFile })

@@ -8,14 +8,20 @@ def commonVersionedSrcDirs = []
 if (pyfish_version_profile_id == 'mc1211') {
     commonVersionedSrcDirs = [rootProject.file('src/mc1211/java')]
 } else if (pyfish_version_profile_id in ['mc1212', 'mc1213', 'mc1214']) {
-    commonVersionedSrcDirs = [rootProject.file('src/mc1212/java')]
-} else if (pyfish_version_profile_id == 'mc12111') {
+    commonVersionedSrcDirs = [rootProject.file('src/shared/mc1212-mc1214/java')]
+} else if (pyfish_version_profile_id in ['mc12111', 'mc262']) {
     commonVersionedSrcDirs = [
-            rootProject.file('src/mc1215/java'),
-            rootProject.file('src/mc12111/java')
+            rootProject.file('src/shared/mc1215-mc12111_mc262/java'),
+            rootProject.file('src/shared/mc12111_mc262/java')
     ]
+    if (pyfish_version_profile_id == 'mc262') {
+        commonVersionedSrcDirs += rootProject.file('src/mc262/java')
+    }
 } else if (pyfish_version_profile_id != 'mc1211') {
-    commonVersionedSrcDirs = [rootProject.file('src/mc1215/java')]
+    commonVersionedSrcDirs = [
+            rootProject.file('src/shared/mc1215-mc12111_mc262/java'),
+            rootProject.file('src/shared/mc1215-mc12110/java')
+    ]
 }
 
 def commonMainVersionedFiles = [
@@ -39,9 +45,15 @@ sourceSets {
         if (pyfish_version_profile_id != 'mc1211') {
             java.exclude { details -> commonMainVersionedFiles.contains(details.file.canonicalFile) }
         }
-        if (pyfish_version_profile_id == 'mc12111') {
-            def mc1215IdentifierCompat = rootProject.file('src/mc1215/java/fr/oesphy/pyfish/compat/MinecraftIdentifierCompat.java').canonicalFile
-            java.exclude { details -> details.file.canonicalFile in [mc1215IdentifierCompat, commonMainPackVersionCompat] }
+        if (pyfish_version_profile_id in ['mc12111', 'mc262']) {
+            java.exclude { details -> details.file.canonicalFile == commonMainPackVersionCompat }
+        }
+        if (pyfish_version_profile_id == 'mc262') {
+            def overlay = rootProject.file('src/mc262/java').canonicalFile
+            java.exclude { details ->
+                !details.file.canonicalPath.startsWith(overlay.path + File.separator) &&
+                        new File(overlay, details.relativePath.pathString).isFile()
+            }
         }
         resources.srcDir(rootProject.file('src/main/resources'))
         resources.exclude('META-INF/**', 'pyfish.mixins.json', 'fabric.mod.json')
@@ -60,9 +72,11 @@ graalPy {
 
 neoForge {
     neoFormVersion = neo_form_version_selector
-    parchment {
-        minecraftVersion = parchment_minecraft
-        mappingsVersion = parchment_version
+    if (minecraft_obfuscated) {
+        parchment {
+            minecraftVersion = parchment_minecraft
+            mappingsVersion = parchment_version
+        }
     }
 }
 

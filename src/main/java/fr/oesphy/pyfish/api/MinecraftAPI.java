@@ -2,6 +2,7 @@ package fr.oesphy.pyfish.api;
 
 import fr.oesphy.pyfish.PyFish;
 import fr.oesphy.pyfish.compat.MinecraftCompat;
+import fr.oesphy.pyfish.compat.MinecraftWorldCompat;
 import fr.oesphy.pyfish.content.PyFishResourceGenerator;
 import fr.oesphy.pyfish.content.PyFishScriptContext;
 import fr.oesphy.pyfish.platform.PlatformEventBridge;
@@ -118,12 +119,12 @@ public class MinecraftAPI {
     }
 
     public long getTime(ServerLevel world) {
-        return world != null ? world.getDayTime() : 0;
+        return world != null ? MinecraftWorldCompat.getDayTime(world) : 0;
     }
 
     public void setTime(ServerLevel world, long time) {
         if (world != null) {
-            world.setDayTime(time);
+            MinecraftWorldCompat.setDayTime(world, time);
         }
     }
 
@@ -274,7 +275,7 @@ public class MinecraftAPI {
             return;
         }
         try {
-            net.minecraft.world.entity.LightningBolt bolt = MinecraftCompat.createEntity(EntityType.LIGHTNING_BOLT,
+            net.minecraft.world.entity.LightningBolt bolt = MinecraftCompat.createEntity(MinecraftWorldCompat.lightningType(),
                     world);
             if (bolt != null) {
                 MinecraftCompat.setEntityPosition(bolt, x, y, z);

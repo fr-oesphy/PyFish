@@ -6,7 +6,7 @@ Thanks for taking the time to contribute.
 
 PyFish currently targets:
 
-- Java 21
+- Java 21 for 1.21.x, Java 25 for Minecraft 26.2
 - Fabric and NeoForge
 - Minecraft version profiles managed through `gradle/version-profiles.json`
 
@@ -38,9 +38,8 @@ On Linux or macOS:
 ./gradlew quickCheck
 ```
 
-`quickCheck` is the fastest meaningful verification task for contributors. It
-runs the shared tests and the selected loader compile tasks for the active
-version profile.
+`quickCheck` runs shared tests and launches each selected loader's packaged
+Python runtime in a clean JVM, checking both compilation and packaging.
 
 Useful commands:
 
@@ -48,8 +47,29 @@ Useful commands:
 - `.\gradlew.bat -PpyfishVersionProfile=mc1211 quickCheck`: fast verification for a specific profile
 - `.\gradlew.bat build`: full build for the selected profile
 - `.\gradlew.bat -PpyfishVersionProfile=mc12111 build`: full build for another profile
+- `.\gradlew.bat -PpyfishVersionProfile=mc262 quickCheck`: verify both loaders on Minecraft 26.2
 - `.\gradlew.bat buildAllVersionProfiles`: release matrix build across all configured profiles
 - `.\gradlew.bat :common:test`: shared runtime and utility tests only
+
+Select JDK 25 as the Gradle JVM when building `mc262`. Each profile declares
+its compiler version; 1.21.x profiles still compile for Java 21. Gradle and
+loader plugin versions are pinned in the repository, so no manual tool update
+is needed when switching profiles.
+
+## Source Layout
+
+`src/main/` contains the default implementation. Version-specific adapters live
+in `src/mc1211/` or `src/mc262/`; reusable adapters live in `src/shared/`.
+The same convention applies inside `fabric/` and `neoforge/`.
+
+Shared directory names describe their consumers: `mc1212-mc1214` means 1.21.2
+through 1.21.4, while `mc12111_mc262` means 1.21.11 and 26.2, not the versions
+between them. `mc1215-mc12111_mc262` combines a range with that additional target.
+The Gradle source sets select these groups explicitly. A version-specific
+overlay takes precedence over a shared implementation of the same class.
+
+GameTests follow the same naming convention under `src/gameTest/`. Keep shared
+code in one group rather than copying it into each consuming profile.
 
 ## Coding Guidelines
 

@@ -6,12 +6,11 @@ import fr.oesphy.pyfish.content.OreBiomeSelection;
 import fr.oesphy.pyfish.content.PyFishContentBackend;
 import fr.oesphy.pyfish.content.PyFishContentSupport;
 import fr.oesphy.pyfish.content.PyFishResourceGenerator;
+import fr.oesphy.pyfish.fabric.compat.FabricVersionCompat;
 import fr.oesphy.pyfish.mixin.MappedRegistryAccessor;
 import net.fabricmc.fabric.api.biome.v1.BiomeModifications;
 import net.fabricmc.fabric.api.biome.v1.BiomeSelectionContext;
 import net.fabricmc.fabric.api.biome.v1.BiomeSelectors;
-import net.fabricmc.fabric.api.itemgroup.v1.FabricItemGroup;
-import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -144,7 +143,7 @@ public final class FabricPyFishContentBackend implements PyFishContentBackend {
                 ? PyFishResourceGenerator.resolveIdentifier(propertySnapshot.get("icon").toString(), namespace)
                 : "minecraft:diamond";
 
-        CreativeModeTab tab = FabricItemGroup.builder()
+        CreativeModeTab tab = FabricVersionCompat.tabBuilder()
                 .title(Component.literal(displayName))
                 .icon(() -> MinecraftCompat.createItemStack(MinecraftCompat.registryGet(BuiltInRegistries.ITEM, iconId)))
                 // Fabric assigns custom tab placement through its own item group builder internals.
@@ -183,7 +182,7 @@ public final class FabricPyFishContentBackend implements PyFishContentBackend {
                         tabId, MinecraftCompat.resourceKeyIdString(tabKey), exception);
             }
         }
-        ItemGroupEvents.modifyEntriesEvent(tabKey).register(entries -> entries.accept(item));
+        FabricVersionCompat.addToTab(tabKey, item);
     }
 
     private ResourceKey<CreativeModeTab> createTabKey(String id) {

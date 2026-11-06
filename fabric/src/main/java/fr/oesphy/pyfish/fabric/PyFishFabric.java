@@ -5,12 +5,12 @@ import fr.oesphy.pyfish.content.PyFishContentManager;
 import fr.oesphy.pyfish.content.PyFishRecipeApplier;
 import fr.oesphy.pyfish.api.event.PyFishEventObjects;
 import fr.oesphy.pyfish.fabric.content.FabricPyFishContentBackend;
+import fr.oesphy.pyfish.fabric.compat.FabricVersionCompat;
 import fr.oesphy.pyfish.network.PyFishClientHelloPayload;
 import fr.oesphy.pyfish.network.PyFishClientPresenceService;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 
@@ -22,7 +22,7 @@ public class PyFishFabric implements ModInitializer {
             PyFish.initialize(new FabricPlatform());
         }
 
-        PayloadTypeRegistry.playC2S().register(PyFishClientHelloPayload.TYPE, PyFishClientHelloPayload.STREAM_CODEC);
+        FabricVersionCompat.registerClientHello();
 
         ServerPlayNetworking.registerGlobalReceiver(PyFishClientHelloPayload.TYPE, (payload, context) ->
                 PyFishClientPresenceService.getInstance().onClientHello(context.player(), payload));

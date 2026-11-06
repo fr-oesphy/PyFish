@@ -26,6 +26,8 @@ if (activeVersionProfile == null) {
 }
 
 def versionProfileOverrides = [
+        java_version                      : activeVersionProfile.java_version ?: findProperty('java_version'),
+        minecraft_obfuscated              : activeVersionProfile.minecraft_obfuscated != false,
         minecraft_version                 : activeVersionProfile.minecraft_version,
         minecraft_dependency_version      : activeVersionProfile.minecraft_dependency_version ?: activeVersionProfile.minecraft_version,
         minecraft_version_range           : activeVersionProfile.minecraft_version_range,
@@ -67,7 +69,7 @@ ext {
 allprojects {
     version = rootProject.version
     group = rootProject.group
-    buildDir = rootProject.file("build/profiles/${activeVersionProfileId}/${project.name}")
+    layout.buildDirectory.set(rootProject.file("build/profiles/${activeVersionProfileId}/${project.name}"))
 
     ext {
         pyfish_version_profile_id = activeVersionProfileId
