@@ -85,6 +85,22 @@ public final class BindingRegistry {
         } catch (Exception e) {
             LOGGER.warn("[PyFish/BindingRegistry] Failed to inject 'scheduler': {}", e.getMessage());
         }
+
+        // --- asset_pack ------------------------------------------------------
+        try {
+            bindings.putMember("asset_pack", fr.oesphy.pyfish.generator.VirtualAssetPack.INSTANCE);
+            LOGGER.debug("[PyFish/BindingRegistry] Injected binding: asset_pack");
+        } catch (Exception e) {
+            LOGGER.warn("[PyFish/BindingRegistry] Failed to inject 'asset_pack': {}", e.getMessage());
+        }
+
+        // --- data_pack -------------------------------------------------------
+        try {
+            bindings.putMember("data_pack", fr.oesphy.pyfish.generator.VirtualDataPack.INSTANCE);
+            LOGGER.debug("[PyFish/BindingRegistry] Injected binding: data_pack");
+        } catch (Exception e) {
+            LOGGER.warn("[PyFish/BindingRegistry] Failed to inject 'data_pack': {}", e.getMessage());
+        }
     }
 
     // -------------------------------------------------------------------------
