@@ -11,6 +11,12 @@
 PyFish is a multiloader Minecraft mod that embeds GraalPy so Python scripts can
 run directly inside the game on Fabric and NeoForge.
 
+The embedded runtime is GraalPy 25.3.4.1 (Python 3.13). No system Python
+installation is required. Python packages must be compatible with GraalPy;
+native wheels built for CPython are not interchangeable.
+Cached requirements are reinstalled automatically when the GraalPy version or
+platform changes, so Python 3.12 native packages are not reused with Python 3.13.
+
 It supports three main workflows:
 
 - quick scripts loaded from `pyfish/scripts/`
@@ -30,7 +36,8 @@ It supports three main workflows:
 ## Supported Environment
 
 - Minecraft `1.21.1` through `1.21.11`, and `26.2`
-- Java `21` for 1.21.x; Java `25` for 26.2
+- Java `25` for all Minecraft profiles
+- Fabric Loader `0.20.1` or newer when using Fabric
 - Fabric Loader or NeoForge matching the selected build profile
 
 ## Installation
@@ -293,9 +300,9 @@ each selected loader.
 `build` builds only the selected version profile. Use `buildAllVersionProfiles`
 when you intentionally want the full release matrix.
 
-For `mc262`, run Gradle with JDK 25 (set the IDE's Gradle JVM or `JAVA_HOME`).
-The profile selects the Java 25 compiler, loader versions and unobfuscated
-Fabric packaging automatically. Older profiles retain Java 21 and Fabric
+Run Gradle with JDK 25 (set the IDE's Gradle JVM or `JAVA_HOME`). GraalPy 25.3
+requires it for full native-extension support, including `sqlite3` and `ctypes`.
+Minecraft 26.2 uses unobfuscated Fabric packaging; older profiles retain Fabric
 remapping. Outputs are kept separately in `build/profiles/<profile>/`.
 
 Minecraft 26.2 uses world clocks. The Python time helpers read and update the

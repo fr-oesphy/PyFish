@@ -27,13 +27,18 @@ class VersionProfilesTest {
     }
 
     @Test
-    void legacyProfilesKeepTheirDefaultToolchainAndRemapping() throws Exception {
+    void legacyProfilesUseJava25AndKeepRemapping() throws Exception {
+        var properties = new java.util.Properties();
+        try (var reader = Files.newBufferedReader(Path.of("../gradle.properties"))) {
+            properties.load(reader);
+        }
+        assertEquals("25", properties.getProperty("java_version"));
         for (var entry : profiles().entrySet()) {
             if (!entry.getKey().startsWith("mc121")) {
                 continue;
             }
             JsonObject profile = entry.getValue().getAsJsonObject();
-            assertTrue(!profile.has("java_version") || profile.get("java_version").getAsInt() == 21,
+            assertTrue(!profile.has("java_version") || profile.get("java_version").getAsInt() == 25,
                     entry.getKey());
             assertTrue(!profile.has("minecraft_obfuscated") || profile.get("minecraft_obfuscated").getAsBoolean(),
                     entry.getKey());

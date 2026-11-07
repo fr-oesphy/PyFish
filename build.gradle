@@ -12,7 +12,6 @@ plugins {
     id 'net.fabricmc.fabric-loom-remap' version '1.14.8' apply false
     id 'net.neoforged.moddev' version '2.0.141' apply false
     id 'com.gradleup.shadow' version '8.3.11' apply false
-    id 'org.graalvm.python' version '25.0.1' apply false
 }
 
 def versionProfileFile = rootProject.file('gradle/version-profiles.json')
@@ -42,7 +41,7 @@ def versionProfileOverrides = [
 ]
 
 ext {
-    graalPyVersion = '25.0.1'
+    graalPyVersion = '25.3.4.1'
     pyfishSqliteJdbcVersion = '3.46.0.0'
     pyfishCompileOnlyLibraries = [
             'org.slf4j:slf4j-api:2.0.9'
@@ -58,8 +57,7 @@ ext {
             "org.graalvm.truffle:truffle-api:${graalPyVersion}",
             "org.graalvm.regex:regex:${graalPyVersion}",
             "org.graalvm.python:python-embedding:${graalPyVersion}@jar",
-            'org.bouncycastle:bcprov-jdk18on:1.78.1',
-            'org.bouncycastle:bcpkix-jdk18on:1.78.1'
+            "org.graalvm.python:python-bouncycastle-support:${graalPyVersion}",
     ]
     pyfishVersionProfiles = versionProfiles
     pyfishActiveVersionProfileId = activeVersionProfileId

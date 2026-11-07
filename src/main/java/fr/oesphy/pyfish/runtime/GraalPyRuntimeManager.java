@@ -117,7 +117,6 @@ public class GraalPyRuntimeManager {
                         .err(stderr)
                         .allowExperimentalOptions(true)
                         .option("python.EmulateJython", "true")
-                        .option("python.IsolateNativeModules", "true")
                         .option("engine.WarnInterpreterOnly", "false");
 
                 if (runtimeResourceRoot.isEmpty()) {
@@ -125,6 +124,7 @@ public class GraalPyRuntimeManager {
                 }
 
                 ctx = contextBuilder.build();
+                dependencyManager.prepareDependencies(ctx);
                 initContext(ctx);
                 // Do not publish a half-initialized context: subsequent calls cannot repair
                 // a missing pyfish module or partially populated sys.modules.
@@ -139,6 +139,7 @@ public class GraalPyRuntimeManager {
                 throw new RuntimeException("Failed to initialize Python runtime", e);
             }
         }
+        dependencyManager.prepareDependencies(sharedContext);
         return sharedContext;
     }
 

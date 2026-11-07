@@ -6,7 +6,7 @@ Thanks for taking the time to contribute.
 
 PyFish currently targets:
 
-- Java 21 for 1.21.x, Java 25 for Minecraft 26.2
+- Java 25 for all Minecraft profiles
 - Fabric and NeoForge
 - Minecraft version profiles managed through `gradle/version-profiles.json`
 
@@ -51,8 +51,8 @@ Useful commands:
 - `.\gradlew.bat buildAllVersionProfiles`: release matrix build across all configured profiles
 - `.\gradlew.bat :common:test`: shared runtime and utility tests only
 
-Select JDK 25 as the Gradle JVM when building `mc262`. Each profile declares
-its compiler version; 1.21.x profiles still compile for Java 21. Gradle and
+Select JDK 25 as the Gradle JVM for every profile. This also preserves GraalPy's
+native-extension support (`sqlite3`, `ctypes`) at runtime. Gradle and
 loader plugin versions are pinned in the repository, so no manual tool update
 is needed when switching profiles.
 

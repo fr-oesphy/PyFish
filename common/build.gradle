@@ -1,7 +1,6 @@
 plugins {
     id 'multiloader-common'
     id 'net.neoforged.moddev'
-    id 'org.graalvm.python'
 }
 
 def commonVersionedSrcDirs = []
@@ -73,10 +72,6 @@ sourceSets {
         compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
         runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     }
-}
-
-graalPy {
-    resourceDirectory = 'org.graalvm.python.vfs'
 }
 
 neoForge {

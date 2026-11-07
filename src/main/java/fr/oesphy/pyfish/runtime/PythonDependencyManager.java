@@ -20,6 +20,7 @@ import java.util.zip.ZipInputStream;
 public class PythonDependencyManager {
     private static final Logger LOGGER = PyFish.LOGGER;
     private final Path libsRoot;
+    private final java.util.Map<String, String> pending = new java.util.LinkedHashMap<>();
 
     public PythonDependencyManager() {
         // Keep third-party packages out of the game and loader classpaths. Each mod gets a
@@ -37,17 +38,33 @@ public class PythonDependencyManager {
      * is written only after pip succeeds, so interrupted installations are retried.
      */
     public Path installDependencies(String modId, String requirementsContent) {
+        if (requirementsContent == null || requirementsContent.isBlank()) return null;
+        pending.put(modId, requirementsContent);
+        return libsRoot.resolve(modId);
+    }
+
+    public void prepareDependencies(Context context) {
+        for (var entry : pending.entrySet()) {
+            if (installDependenciesNow(context, entry.getKey(), entry.getValue()) == null) {
+                throw new IllegalStateException("Could not install Python dependencies for " + entry.getKey());
+            }
+        }
+        pending.clear();
+    }
+
+    private Path installDependenciesNow(Context context, String modId, String requirementsContent) {
         if (requirementsContent == null || requirementsContent.isBlank()) {
             return null;
         }
 
         try {
-            String hash = computeHash(requirementsContent);
+            String hash = requirementsHash(requirementsContent, GraalPyRuntimeResources.GRAALPY_VERSION,
+                    System.getProperty("os.name") + "/" + System.getProperty("os.arch"));
             Path modLibPath = libsRoot.resolve(modId);
             Path hashFile = modLibPath.resolve(".hash");
 
-            // Hash the declaration rather than directory timestamps: launchers commonly copy
-            // modpacks while preserving or rewriting mtimes.
+            // A matching requirements file does not make native wheels portable across
+            // interpreter upgrades or platforms.
             if (Files.exists(modLibPath) && Files.exists(hashFile)) {
                 String existingHash = Files.readString(hashFile);
                 if (existingHash.trim().equals(hash)) {
@@ -65,7 +82,7 @@ public class PythonDependencyManager {
             }
             Files.createDirectories(modLibPath);
 
-            boolean success = installWithPip(modId, modLibPath, requirementsContent);
+            boolean success = installWithPip(context, modId, modLibPath, requirementsContent);
 
             if (success) {
                 Files.writeString(hashFile, hash);
@@ -84,7 +101,7 @@ public class PythonDependencyManager {
     }
 
     private Path ensurePipExtracted() {
-        Path pipDir = libsRoot.resolve("pip_extracted");
+        Path pipDir = libsRoot.resolve("pip_extracted").resolve(GraalPyRuntimeResources.GRAALPY_VERSION);
         if (!Files.exists(pipDir)) {
             try (java.io.InputStream is = getClass().getClassLoader().getResourceAsStream("pip.whl")) {
                 if (is == null) {
@@ -120,22 +137,14 @@ public class PythonDependencyManager {
         return pipDir;
     }
 
-    private boolean installWithPip(String modId, Path targetDir, String requirementsContent) {
+    private boolean installWithPip(Context context, String modId, Path targetDir, String requirementsContent) {
         Path pipDir = ensurePipExtracted();
         if (pipDir == null) {
             LOGGER.error("[PyFish] Cannot install dependencies because pip extraction failed.");
             return false;
         }
 
-        try (Context context = Context.newBuilder("python", "regex")
-                .allowAllAccess(true)
-                .option("python.ForceImportSite", "true")
-                .option("python.PythonPath", pipDir.toAbsolutePath().toString())
-                .option("engine.WarnInterpreterOnly", "false")
-                .option("python.WarnExperimentalFeatures", "false")
-                .out(new LoggingOutputStream(false))
-                .err(new LoggingOutputStream(true))
-                .build()) {
+        try {
 
             // Let pip parse the original file. Reconstructing argv entries here would subtly
             // break markers, continuation lines and index options.
@@ -144,36 +153,10 @@ public class PythonDependencyManager {
 
             LOGGER.info("[PyFish] Running pip install target={} requirements={}", targetDir, reqFile);
 
-            String reqPath = reqFile.toAbsolutePath().toString().replace("\\", "\\\\");
-            String targetPath = targetDir.toAbsolutePath().toString().replace("\\", "\\\\");
-
-            // Invoke pip in-process because the embedded distribution has no standalone
-            // GraalPy executable. A separate context keeps pip imports out of the game runtime.
-            String runPipScript = "import sys\n" +
-                    "import runpy\n" +
-                    "sys.argv = ['pip', 'install', '--no-cache-dir', '--disable-pip-version-check', '--no-input', '--isolated', '-t', '" + targetPath
-                    + "', '-r', '" + reqPath
-                    + "', '--no-warn-script-location']\n" +
-                    "success = False\n" +
-                    "try:\n" +
-                    "    runpy.run_module('pip', run_name='__main__')\n" +
-                    "    success = True\n" +
-                    "except SystemExit as e:\n" +
-                    "    success = (e.code == 0)\n" +
-                    "except Exception as e:\n" +
-                    "    print(f'Pip Fatal Error: {e}')\n" +
-                    "    import traceback\n" +
-                    "    traceback.print_exc()\n" +
-                    "    success = False\n" +
-                    "success";
-
-            try {
-                Value result = context.eval("python", runPipScript);
-                return result.isBoolean() && result.asBoolean();
-            } catch (Exception e) {
-                LOGGER.error("[PyFish] Error executing pip: " + e.getMessage());
-                return false;
-            }
+            return PythonPipRunner.run(context, List.of("pip", "install", "--no-cache-dir",
+                    "--disable-pip-version-check", "--no-input", "--isolated", "--target",
+                    targetDir.toAbsolutePath().toString(), "--requirement", reqFile.toAbsolutePath().toString(),
+                    "--no-warn-script-location"), pipDir);
 
         } catch (Exception e) {
             LOGGER.error("[PyFish] Pip installation failed: " + e.getMessage());
@@ -181,7 +164,11 @@ public class PythonDependencyManager {
         }
     }
 
-    private String computeHash(String content) throws Exception {
+    static String requirementsHash(String content, String runtimeVersion, String platform) throws Exception {
+        return computeHash(runtimeVersion + "\n" + platform + "\n" + content);
+    }
+
+    private static String computeHash(String content) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         byte[] hash = digest.digest(content.getBytes("UTF-8"));
         StringBuilder hexString = new StringBuilder();

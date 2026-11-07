@@ -1,4 +1,7 @@
 from pyfish import blocks, ores, items, recipes, tags
+import sys
+
+assert sys.version_info[:2] == (3, 13), sys.version
 
 items.register_item("preferred_ingot", {"texture": "minecraft:item/iron_ingot"})
 recipes.register_schema("minecraft:crafting_shaped", [
