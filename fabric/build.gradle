@@ -40,6 +40,10 @@ configurations.configureEach {
 sourceSets {
     main {
         java {
+            if (pyfish_version_profile_id != 'mc262') {
+                srcDir(pyfish_version_profile_id in ['mc1211', 'mc1212', 'mc1213', 'mc1214', 'mc1215']
+                        ? 'src/shared/mc1211-mc1215/java' : 'src/shared/mc1216-mc12111/java')
+            }
             def fabricVersionedSrcDir = null
             def fabricMainRuntimePackFile = file('src/main/java/fr/oesphy/pyfish/fabric/content/PyFishFabricRuntimePackResources.java').canonicalFile
             if (pyfish_version_profile_id == 'mc1211') {
@@ -178,6 +182,7 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
         def requiredEntries = [
                 'org.graalvm.python.vfs/fileslist.txt',
                 'pyfish.py',
+                'pyfish-build.properties',
                 'java_asyncio.py',
                 'java_logging.py',
                 'java_multiprocessing.py',
@@ -206,6 +211,11 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
             }
 
             def entries = java.util.Collections.list(zip.entries())
+            if (entries.any { entry -> entry.name.startsWith('fr/oesphy/pyfish/gametest/')
+                    || entry.name.startsWith('data/pyfish_ore_tests/')
+                    || entry.name.startsWith('pyfish/pyfish_ore_tests/') }) {
+                throw new GradleException('PyFish release jar contains GameTest code or fixtures.')
+            }
             if (entries.any { entry ->
                 entry.name.endsWith('.class')
                         && (entry.name.startsWith('org/sqlite/')

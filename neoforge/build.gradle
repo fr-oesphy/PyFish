@@ -169,6 +169,7 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
         def requiredEntries = [
                 'org.graalvm.python.vfs/fileslist.txt',
                 'pyfish.py',
+                'pyfish-build.properties',
                 'java_asyncio.py',
                 'java_logging.py',
                 'java_multiprocessing.py',
@@ -197,6 +198,11 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
             }
 
             def entries = java.util.Collections.list(zip.entries())
+            if (entries.any { entry -> entry.name.startsWith('fr/oesphy/pyfish/gametest/')
+                    || entry.name.startsWith('data/pyfish_ore_tests/')
+                    || entry.name.startsWith('pyfish/pyfish_ore_tests/') }) {
+                throw new GradleException('PyFish release jar contains GameTest code or fixtures.')
+            }
             if (entries.any { entry ->
                 entry.name.endsWith('.class')
                         && (entry.name.startsWith('org/sqlite/')

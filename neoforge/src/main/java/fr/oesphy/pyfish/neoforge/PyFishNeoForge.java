@@ -77,6 +77,14 @@ public class PyFishNeoForge {
     }
 
     @SubscribeEvent
+    public void onDatapackSync(net.neoforged.neoforge.event.OnDatapackSyncEvent event) {
+        if (event.getPlayer() == null) {
+            PyFishRecipeApplier.invalidate(event.getPlayerList().getServer());
+            PyFishRecipeApplier.applyQueuedRemovals(event.getPlayerList().getServer());
+        }
+    }
+
+    @SubscribeEvent
     public void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
             PyFishClientPresenceService.getInstance().onPlayerJoin(player, MinecraftCompat.getServer(player).getTickCount());
@@ -97,6 +105,8 @@ public class PyFishNeoForge {
 
     @SubscribeEvent
     public void onServerStopped(ServerStoppedEvent event) {
+        PyFishRecipeApplier.invalidate(event.getServer());
+        fr.oesphy.pyfish.content.PyFishResourceGenerator.useLoadedTags(false);
         PyFishClientPresenceService.getInstance().onServerStopped();
     }
 }

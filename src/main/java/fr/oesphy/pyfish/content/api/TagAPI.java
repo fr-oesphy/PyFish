@@ -34,7 +34,4 @@ public final class TagAPI {
         return new ArrayList<>(PyFishResourceGenerator.getItemsByTag(manager.resolveId(tagId)));
     }
 
-    public void unify(String tag, String preferredMod) {
-        PyFish.LOGGER.info("[PyFish/Content] Tag unification request recorded for {} -> {}", tag, preferredMod);
-    }
 }

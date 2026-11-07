@@ -1,12 +1,12 @@
 package fr.oesphy.pyfish.content.item;
 
 import fr.oesphy.pyfish.content.api.PythonEventHandler;
+import fr.oesphy.pyfish.content.api.ContentInteraction;
 import fr.oesphy.pyfish.content.api.PyFishContentCallbackSupport;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.HoeItem;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ToolMaterial;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
@@ -24,13 +24,15 @@ public class ModularHoeItem extends HoeItem {
 
     @Override
     public InteractionResult use(Level level, Player player, InteractionHand hand) {
-        PyFishContentCallbackSupport.callItemUse(eventHandler, level, player, hand);
+        var result = PyFishContentCallbackSupport.callItemUse(eventHandler, level, player, hand);
+        if (result != ContentInteraction.PASS) return result.vanilla();
         return super.use(level, player, hand);
     }
 
     @Override
     public InteractionResult useOn(UseOnContext context) {
-        PyFishContentCallbackSupport.callItemUseOn(eventHandler, context);
+        var result = PyFishContentCallbackSupport.callItemUseOn(eventHandler, context);
+        if (result != ContentInteraction.PASS) return result.vanilla();
         return super.useOn(context);
     }
 }

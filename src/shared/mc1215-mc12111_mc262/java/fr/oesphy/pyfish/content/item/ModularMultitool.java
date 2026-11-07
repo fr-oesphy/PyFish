@@ -18,6 +18,7 @@ public class ModularMultitool extends ModularItem {
 
     @Override
     public boolean isCorrectToolForDrops(ItemStack stack, BlockState state) {
+        if (state.is(toolMaterial.incorrectBlocksForDrops())) return false;
         return state.is(BlockTags.MINEABLE_WITH_PICKAXE)
                 || state.is(BlockTags.MINEABLE_WITH_AXE)
                 || state.is(BlockTags.MINEABLE_WITH_SHOVEL)

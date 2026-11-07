@@ -34,11 +34,22 @@ public class PyFishFabric implements ModInitializer {
                     new PyFishEventObjects.ServerEvent(server));
         });
 
-        ServerLifecycleEvents.SERVER_STOPPED.register(server ->
-                PyFishClientPresenceService.getInstance().onServerStopped());
+        ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
+            PyFishRecipeApplier.invalidate(server);
+            fr.oesphy.pyfish.content.PyFishResourceGenerator.useLoadedTags(false);
+            PyFishClientPresenceService.getInstance().onServerStopped();
+        });
 
         ServerLifecycleEvents.SERVER_STARTED.register(server ->
                 PyFishRecipeApplier.applyQueuedRemovals(server));
+        ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resourceManager, success) -> {
+            if (!success) return;
+            PyFishRecipeApplier.invalidate(server);
+            if (PyFishRecipeApplier.applyQueuedRemovals(server)) {
+                // Fabric's completion event runs after vanilla has sent the original recipes.
+                server.getPlayerList().reloadResources();
+            }
+        });
 
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) ->
                 PyFishClientPresenceService.getInstance().onPlayerJoin(handler.getPlayer(), server.getTickCount()));

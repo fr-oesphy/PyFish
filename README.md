@@ -57,7 +57,7 @@ Example instance layout:
 ```text
 .minecraft/
 |-- mods/
-|   |-- pyfish-neoforge-1.21.11-1.2.6.jar
+|   |-- pyfish-neoforge-1.21.11-1.2.7.jar
 |   `-- example_mod-1.0.0.pyz
 |-- config/
 `-- pyfish/
@@ -127,6 +127,124 @@ from release JARs:
 The GameTest suite targets `mc1211`, `mc12111` and `mc262` (JDK 25). It checks
 fresh noise-generated chunks, stone/deepslate replacement,
 height constraints, untouched non-target blocks, and excluded biomes.
+It also exercises block properties and loot, tool tiers, real crafting and
+recipe removal/replacement, Python interaction results, inventory overflow,
+and parameterized particles. These are server tests; they do not validate
+on-screen rendering. Unit tests additionally inspect generated render metadata.
+
+## Content Properties
+
+Block properties can configure the physical block as well as its item:
+
+```python
+from pyfish import blocks
+
+blocks.register_block("glass_slab", {
+    "texture": "block/glass_slab",
+    "renderType": "translucent",
+    "shape": [0, 0, 0, 16, 8, 16],
+    "lightLevel": 7,
+    "sound": "glass",
+    "miningTool": "pickaxe",
+    "requiredTier": 2,
+    "requiresCorrectToolForDrops": True,
+    "stacksTo": 16,
+})
+```
+
+| Property | Meaning |
+| --- | --- |
+| `renderType` | `solid` (default), `cutout`, `cutout_mipped`, or `translucent`. Non-solid modes also disable occlusion. |
+| `noOcclusion` | Disable occlusion explicitly, independently of the render mode. |
+| `noCollision` | Make the block non-collidable. |
+| `shape` | Outline and default collision shape, as six coordinates in `0..16`, or a list of such boxes. `[]` is empty. |
+| `collisionShape` | Override the collision shape without changing the outline. |
+| `lightLevel` | Emitted light, from 0 through 15. |
+| `sound` | `stone`, `wood`, `metal`, `glass`, `gravel`, `sand`, `grass`, or `wool`. |
+| `friction`, `speedFactor`, `jumpFactor` | Physical movement multipliers. |
+| `drops` | `self` (default), `none`, or an item ID. Authored loot tables take priority. |
+| `miningTool` | Add the block to the vanilla `pickaxe`, `axe`, `shovel`, or `hoe` mining tag. |
+| `requiredTier` | Declare a stone, iron, or diamond mining requirement; combine with `requiresCorrectToolForDrops`. Netherite uses vanilla's diamond requirement. |
+| `stacksTo`, `fireResistant` | Configure the block's inventory item. |
+
+In 1.21.x, PyFish sets the Fabric render layer and generates the corresponding
+NeoForge model metadata. Minecraft 26.2 selects layers automatically from each
+face's pixels; `translucent` additionally forces translucency on generated
+texture materials. Explicit metadata in an authored model is preserved.
+Minecraft 1.21.11 merges `cutout_mipped` into `cutout`; PyFish generates the
+supported layer name for that version.
+Custom JSON geometry does not infer a collision shape: declare `shape` as well.
+Unknown property names produce warnings rather than silently disappearing.
+
+Tools accept `tier` as `0` (wood), `1` (stone), `2` (iron, default), `3`
+(diamond), or `4` (netherite), or a material name including `gold`.
+Both normal tools and multitools respect their material's harvesting limits.
+The tier controls harvesting eligibility, not the defaults for `speed`,
+`durability` or damage; configure those separately.
+
+Content `use` and `use_on` callbacks may return `None` or `"pass"` to continue
+vanilla behavior, `True`/`"success"` or `"consume"` to handle the action, or
+`False`/`"fail"` to reject it. Callbacks run on the server. The `eat` callback
+is a notification, not a cancellable interaction.
+
+### Recipe Editing
+
+There is no automatic unification or preferred-mod selection. Register explicit
+operations during script startup; they run in declaration order on server start
+and datapack reload, against a fresh recipe snapshot rather than previous edits.
+The previous `tags.unify` entry point has been removed; use explicit replacements instead.
+
+```python
+from pyfish import recipes
+
+recipes.replace_input({"type": "minecraft:crafting_shaped"},
+                      "minecraft:iron_ingot", "#c:ingots/iron")
+recipes.replace_output({"mod": "example"},
+                       "#c:ingots/tin", "example:tin_ingot")
+recipes.remove_matching({"all": [{"type": "minecraft:smelting"},
+                                 {"not": {"mod": "minecraft"}}]})
+```
+
+Filters accept exact `id`, `type`, `mod` (recipe namespace), `input`, and `output`.
+Dictionary entries are ANDed; a list is OR. `all` and `any` take filter lists;
+`not` takes a filter. `{}` selects everything. Use explicit namespaced IDs in
+filters. Item selectors accept item IDs or `#tag` selectors. An item match does
+not expand or narrow ingredient tags; use the exact tag selector to replace one.
+Output replacements require a concrete item ID. Existing stack counts and
+explicit components are retained. Ingredients and outputs are separate operations.
+No inventories, loot tables or placed blocks are changed.
+
+Built-in schemas cover shaped/shapeless crafting, cooking, stonecutting and
+smithing. For a modded recipe type, declare the fields explicitly:
+
+```python
+recipes.register_schema("example:crusher", [
+    {"path": "ingredients.*", "role": "input", "kind": "ingredient"},
+    {"path": "results.*.stack", "role": "output", "kind": "item_stack"},
+])
+```
+
+Paths use dot-separated keys, numeric array indices, and `*` for array elements or object values.
+`ingredient` supports item/tag strings, simple item/tag objects and alternatives.
+`item_stack` supports item strings and objects with `id` or `item`, retaining
+other fields such as count and components. These are recipe field kinds, not
+Minecraft data components. Custom ingredient codecs and fluids are not inferred.
+Declare leaf stack paths to leave probabilities, durations and other metadata untouched.
+Registering a schema for an existing type replaces its schema.
+
+`recipes.get_last_report()` returns `modified`, `removed`, `unsupported` and
+`failed` after application. Unknown recipe types are listed rather than guessed;
+ID/type/mod filters can still remove them. Edits failing Minecraft's codec
+validation leave that entire recipe unchanged. `recipes.remove(id)` still works.
+
+During startup, `tags.get_items_by_tag()` inspects the available static and
+generated resources. Once a server has loaded its datapacks, it uses the actual
+resolved registry tags, including datapack overrides.
+
+`mc.spawn_particle(..., options={...})` accepts the particle-specific JSON fields
+for the selected Minecraft version, including block-state and dust parameters.
+Simple particles still work without `options`. `mc.give_item` drops any inventory
+overflow in ordinary-sized stacks instead of discarding it.
 
 ## Minimal Example
 

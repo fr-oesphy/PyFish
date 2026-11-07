@@ -30,7 +30,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
 
 public class MinecraftAPI {
     private final Map<String, List<EventCallback>> eventCallbacks = new HashMap<>();
@@ -107,7 +106,15 @@ public class MinecraftAPI {
             String resolvedItemId = resolveIdentifier(itemId, "minecraft:air");
             Item item = MinecraftCompat.registryGet(BuiltInRegistries.ITEM, resolvedItemId);
             if (item != null && item != Items.AIR) {
-                player.getInventory().add(new ItemStack(item, count));
+                if (count < 1) throw new IllegalArgumentException("Item count must be positive");
+                int limit = new ItemStack(item).getMaxStackSize();
+                for (int remaining = count; remaining > 0;) {
+                    int amount = Math.min(remaining, limit);
+                    // Unlike add(), this path does not silently discard overflow in creative mode.
+                    player.getInventory().placeItemBackInInventory(new ItemStack(item, amount), false);
+                    remaining -= amount;
+                }
+                if (player.connection != null) player.containerMenu.broadcastChanges();
                 PyFish.LOGGER.info("[PyFish/MCAPI] Gave {}x{} to {}", count, resolvedItemId,
                         player.getName().getString());
             } else {
@@ -323,17 +330,18 @@ public class MinecraftAPI {
 
     public void spawnParticle(ServerLevel world, String particleId, double x, double y, double z, int count, double dx,
             double dy, double dz, double speed) {
+        spawnParticle(world, particleId, x, y, z, count, dx, dy, dz, speed, java.util.Map.of());
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    public void spawnParticle(ServerLevel world, String particleId, double x, double y, double z, int count, double dx,
+            double dy, double dz, double speed, java.util.Map<String, Object> options) {
         if (world == null) {
             return;
         }
         try {
             String resolvedParticleId = resolveIdentifier(particleId, "minecraft:happy_villager");
-            net.minecraft.core.particles.ParticleOptions type = MinecraftCompat.registryGet(
-                    BuiltInRegistries.PARTICLE_TYPE, resolvedParticleId);
-            if (type == null) {
-                PyFish.LOGGER.warn("[PyFish/MCAPI] Invalid particle ID: {}", resolvedParticleId);
-                return;
-            }
+            var type = fr.oesphy.pyfish.content.ParticleSupport.create(world, resolvedParticleId, options);
             world.sendParticles(type, x, y, z, count, dx, dy, dz, speed);
         } catch (Exception e) {
             PyFish.LOGGER.error("[PyFish/MCAPI] Error spawning particles {}: {}", particleId, e.getMessage());

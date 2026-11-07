@@ -16,20 +16,20 @@ public final class PyFishContentCallbackSupport {
     private PyFishContentCallbackSupport() {
     }
 
-    public static void callItemUse(PythonEventHandler eventHandler, Level level, Player player, InteractionHand hand) {
+    public static ContentInteraction callItemUse(PythonEventHandler eventHandler, Level level, Player player, InteractionHand hand) {
         if (!eventHandler.hasHandler("use") || !(level instanceof ServerLevel serverLevel)) {
-            return;
+            return ContentInteraction.PASS;
         }
 
-        eventHandler.call("use", serverLevel, PyFishEventObjects.wrapContentPlayer(player, serverLevel), hand);
+        return eventHandler.callInteraction("use", serverLevel, PyFishEventObjects.wrapContentPlayer(player, serverLevel), hand);
     }
 
-    public static void callItemUseOn(PythonEventHandler eventHandler, UseOnContext context) {
+    public static ContentInteraction callItemUseOn(PythonEventHandler eventHandler, UseOnContext context) {
         if (!eventHandler.hasHandler("use_on") || !(context.getLevel() instanceof ServerLevel serverLevel)) {
-            return;
+            return ContentInteraction.PASS;
         }
 
-        eventHandler.call("use_on", new PyFishEventObjects.ItemUseOnContextHandle(context, serverLevel));
+        return eventHandler.callInteraction("use_on", new PyFishEventObjects.ItemUseOnContextHandle(context, serverLevel));
     }
 
     public static void callItemEat(PythonEventHandler eventHandler, ItemStack stack, Level level, LivingEntity entity) {
@@ -40,7 +40,7 @@ public final class PyFishContentCallbackSupport {
         eventHandler.call("eat", stack, serverLevel, PyFishEventObjects.wrapContentEntity(entity, serverLevel));
     }
 
-    public static void callBlockUse(
+    public static ContentInteraction callBlockUse(
             PythonEventHandler eventHandler,
             ItemStack stack,
             BlockState state,
@@ -50,10 +50,10 @@ public final class PyFishContentCallbackSupport {
             InteractionHand hand,
             BlockHitResult hitResult) {
         if (!eventHandler.hasHandler("use") || !(level instanceof ServerLevel serverLevel)) {
-            return;
+            return ContentInteraction.PASS;
         }
 
-        eventHandler.call(
+        return eventHandler.callInteraction(
                 "use",
                 stack,
                 state,

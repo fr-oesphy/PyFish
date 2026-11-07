@@ -11,6 +11,31 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 @PrefixGameTestTemplate(false)
 public final class NeoForgeOreGameTests {
     @GameTest(template = "empty", timeoutTicks = 400)
+    public static void contentBlocks(GameTestHelper helper) {
+        ContentRegressionChecks.blocks(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 400)
+    public static void contentTools(GameTestHelper helper) {
+        ContentRegressionChecks.tools(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 400)
+    public static void contentRecipes(GameTestHelper helper) {
+        ContentRegressionChecks.recipes(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 400)
+    public static void contentInteractions(GameTestHelper helper) {
+        ContentRegressionChecks.interactions(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 400)
+    public static void contentInventoryAndParticles(GameTestHelper helper) {
+        ContentRegressionChecks.inventoryAndParticles(helper);
+    }
+
+    @GameTest(template = "empty", timeoutTicks = 400)
     public static void naturalChunks(GameTestHelper helper) {
         OreGenerationChecks.naturalChunks(helper);
     }

@@ -25,6 +25,7 @@ if (pyfish_version_profile_id == 'mc1211') {
 }
 
 def commonMainVersionedFiles = [
+        rootProject.file('src/main/java/fr/oesphy/pyfish/compat/MinecraftRecipeCompat.java').canonicalFile,
         rootProject.file('src/main/java/fr/oesphy/pyfish/content/PyFishContentSupport.java').canonicalFile,
         rootProject.file('src/main/java/fr/oesphy/pyfish/content/block/ModularBlock.java').canonicalFile,
         rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularItem.java').canonicalFile,
@@ -43,10 +44,18 @@ sourceSets {
     main {
         java.setSrcDirs([rootProject.file('src/main/java')] + commonVersionedSrcDirs)
         if (pyfish_version_profile_id != 'mc1211') {
+            java.srcDir(rootProject.file('src/shared/mc1212-mc12111_mc262/java'))
+        }
+        if (pyfish_version_profile_id != 'mc1211') {
             java.exclude { details -> commonMainVersionedFiles.contains(details.file.canonicalFile) }
         }
         if (pyfish_version_profile_id in ['mc12111', 'mc262']) {
             java.exclude { details -> details.file.canonicalFile == commonMainPackVersionCompat }
+        }
+        if (pyfish_version_profile_id in ['mc1219', 'mc12110', 'mc12111', 'mc262']) {
+            java.srcDir(rootProject.file('src/shared/mc1219-mc12111_mc262/java'))
+            def mainBlockCompat = rootProject.file('src/main/java/fr/oesphy/pyfish/compat/MinecraftBlockCompat.java').canonicalFile
+            java.exclude { details -> details.file.canonicalFile == mainBlockCompat }
         }
         if (pyfish_version_profile_id == 'mc262') {
             def overlay = rootProject.file('src/mc262/java').canonicalFile
@@ -138,6 +147,7 @@ artifacts {
 
 tasks.named('test') {
     useJUnitPlatform()
+    systemProperty 'pyfish.test.profile', pyfish_version_profile_id
 }
 
 tasks.named('compileTestJava') {

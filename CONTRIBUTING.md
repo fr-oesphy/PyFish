@@ -71,6 +71,16 @@ overlay takes precedence over a shared implementation of the same class.
 GameTests follow the same naming convention under `src/gameTest/`. Keep shared
 code in one group rather than copying it into each consuming profile.
 
+For content changes, run the GameTests on `mc1211`, `mc12111` and `mc262` as
+well as `quickCheck`. The suite covers crafting, loot, tool materials, callbacks,
+inventory overflow and particles alongside ore generation. Run configs isolate
+their worlds by profile and recreate them for each run. CI runs both loaders
+sequentially within each profile to keep memory use predictable.
+The remaining 1.21.x profiles have a separate CI matrix that compiles both
+loaders and runs the shared unit tests. Server GameTests check resource data
+and gameplay behavior, not the final on-screen rendering; verify transparent
+blocks in a client as well when changing render-layer handling.
+
 ## Coding Guidelines
 
 - Keep loader-independent behavior in `common/` or `src/main/java` whenever possible.

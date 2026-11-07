@@ -202,7 +202,12 @@ class _PyFishContentModule:
         self.recipes = _ApiWrapper(bridge.getRecipes(), {
             "shaped": "shaped",
             "shapeless": "shapeless",
-            "remove": "remove"
+            "remove": "remove",
+            "replaceInput": "replace_input",
+            "replaceOutput": "replace_output",
+            "removeMatching": "remove_matching",
+            "registerSchema": "register_schema",
+            "getLastReport": "get_last_report"
         })
         self.items = _ApiWrapper(bridge.getItems(), {
             "registerItem": "register_item",
@@ -215,8 +220,7 @@ class _PyFishContentModule:
         self.tags = _ApiWrapper(bridge.getTags(), {
             "addItemTag": "add_item_tag",
             "addBlockTag": "add_block_tag",
-            "getItemsByTag": "get_items_by_tag",
-            "unify": "unify"
+            "getItemsByTag": "get_items_by_tag"
         })
         self.textures = _TextureWrapper(bridge.getTextures())
         self.tabs = _ApiWrapper(bridge.getTabs(), {
@@ -484,7 +488,7 @@ class MinecraftAPI:
             pitch,
         )
 
-    def spawn_particle(self, world, particle_id, x, y, z, count=1, dx=0.0, dy=0.0, dz=0.0, speed=0.0):
+    def spawn_particle(self, world, particle_id, x, y, z, count=1, dx=0.0, dy=0.0, dz=0.0, speed=0.0, options=None):
         """Spawns particles in the world.
         Args:
             world: The Minecraft world (ServerLevel).
@@ -493,6 +497,7 @@ class MinecraftAPI:
             count: Number of particles.
             dx, dy, dz: Spawn spread on each axis.
             speed: Particle speed.
+            options: Particle-specific fields in this Minecraft version's particle JSON format.
         """
         self._get_mc().spawnParticle(
             self._unwrap_world(world),
@@ -505,6 +510,7 @@ class MinecraftAPI:
             dy,
             dz,
             speed,
+            options or {},
         )
 
     # --- Event System ---

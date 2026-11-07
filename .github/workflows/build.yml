@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
   pull_request:
   workflow_dispatch:
 
@@ -11,6 +12,35 @@ permissions:
   contents: read
 
 jobs:
+  compatibility-check:
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [mc1212, mc1213, mc1214, mc1215, mc1216, mc1217, mc1218, mc1219, mc12110]
+    name: Compile ${{ matrix.profile }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Check shared tests and both loader source sets
+        run: ./gradlew -PpyfishVersionProfile=${{ matrix.profile }} :common:test :fabric:compileJava :neoforge:compileJava --continue --max-workers=1 --stacktrace
+
   quick-check:
     strategy:
       fail-fast: false
@@ -48,3 +78,17 @@ jobs:
 
       - name: Run quick verification
         run: ./gradlew -PpyfishVersionProfile=${{ matrix.profile }} quickCheck --stacktrace
+
+      - name: Run server integration tests
+        run: ./gradlew -PpyfishVersionProfile=${{ matrix.profile }} -PpyfishGameTests :fabric:runGameTest :neoforge:runGameTestServer --max-workers=1 --stacktrace
+
+      - name: Upload test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-${{ matrix.profile }}
+          retention-days: 7
+          path: |
+            build/profiles/**/common/test-results/test/*.xml
+            fabric/runs/ore-tests-*/logs/latest.log
+            neoforge/runs/ore-tests-*/logs/latest.log

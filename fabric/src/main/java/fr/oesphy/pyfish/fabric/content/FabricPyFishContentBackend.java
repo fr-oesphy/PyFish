@@ -119,7 +119,7 @@ public final class FabricPyFishContentBackend implements PyFishContentBackend {
         var block = PyFishContentSupport.createBlock(namespace, path, propertySnapshot, capturedEvents);
         registerBuiltIn(BuiltInRegistries.BLOCK, id, block);
 
-        var blockItem = PyFishContentSupport.createBlockItem(namespace, path, block);
+        var blockItem = PyFishContentSupport.createBlockItem(namespace, path, block, propertySnapshot);
         registerBuiltIn(BuiltInRegistries.ITEM, id, blockItem);
         attachToTab(blockItem, namespace, propertySnapshot);
 
