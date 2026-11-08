@@ -64,7 +64,7 @@ Example instance layout:
 ```text
 .minecraft/
 |-- mods/
-|   |-- pyfish-neoforge-1.21.11-1.2.7.jar
+|   |-- pyfish-neoforge-1.21.11-1.3.0.jar
 |   `-- example_mod-1.0.0.pyz
 |-- config/
 `-- pyfish/
@@ -90,6 +90,101 @@ Static resources follow the normal Minecraft layout:
 - external namespace folders: `pyfish/<namespace>/assets/<namespace>/...` and `pyfish/<namespace>/data/<namespace>/...`
 - `.pyz` mods: `src/assets/<namespace>/...` and `src/data/<namespace>/...`
 - loader JAR mods: `src/main/resources/assets/<namespace>/...` and `src/main/resources/data/<namespace>/...`
+
+## Python Packages and Native Extensions
+
+Put a `requirements.txt` beside a directory mod's `scripts/` folder, at the root
+of a `.pyz`, or under `pyfish/<namespace>/` in a loader JAR. For example:
+
+```text
+numpy>=2.4,<3
+```
+
+Then import the real package normally:
+
+```python
+import numpy as np
+
+matrix = np.array([[1., 2.], [3., 5.]])
+determinant = float(np.linalg.det(matrix))
+```
+
+PyFish uses the patched pip shipped with GraalPy and searches PyPI plus the
+official GraalPy wheel repository. It accepts pure-Python wheels and compatible
+native wheels. A CPython wheel is not interchangeable with a GraalPy wheel.
+Availability depends on the Python version, operating system and architecture;
+the existence of a CPython package does not guarantee a usable GraalPy binary.
+There is no automatic source compilation or compiler installation. If no compatible
+wheel exists, choose another supported version or supply a GraalPy-built wheel
+using a wheel URL or pip's `--find-links` directive.
+Some wheels also require operating-system libraries or drivers, which PyFish does
+not install.
+
+All mods share one interpreter and one resolved package environment. Their
+requirements are resolved together, including version ranges, extras, markers and
+transitive dependencies. Incompatible constraints or different distributions
+overwriting the same import file stop installation rather than silently selecting
+one mod's version. Conflicting primary-index settings are rejected as well.
+Flat requirements files are supported; nested `-r`/`-c` files,
+editable installs and source URLs are not. Index options and `--require-hashes`
+remain available through pip's requirements-file syntax. PyFish manages pip itself;
+mods must not replace it.
+
+Environments live under `pyfish/libs/environments/`, partitioned by GraalPy, Python
+ABI, platform and requirements. Installation is locked and staged before an
+environment becomes usable. Complete generations are reused offline; incomplete
+or damaged ones are rebuilt. `manifest.json` records selected versions, wheel tags
+and native files. Older per-mod `pyfish/libs/<namespace>/` installations are left
+alone but are no longer added to the interpreter's import path. Restart Minecraft
+after changing requirements: native libraries cannot safely be swapped during a
+script reload. Package downloads require a network connection on first installation
+unless every wheel is supplied locally (`--no-index` and `--find-links`). GraalPy's
+patch updater can be disabled separately with `PIP_GRAALPY_PATCHES_URL=disabled`.
+
+The redundant `java_asyncio`, `java_logging`, `java_pathlib`, `java_uuid`,
+`java_sqlite3`, `java_subprocess` and `java_requests` modules have been removed.
+Use the original imports (`asyncio`, `logging`, `pathlib`, `uuid`, `sqlite3`,
+`subprocess`, `requests`) instead. Only `requests` needs a requirements entry;
+the other six are part of the bundled standard library. SQLite uses GraalPy's
+original module, not JDBC. This is an API migration, not a transparent alias:
+Java-only additions such as `java_requests.get_async` have no direct equivalent
+in `requests`; use its normal API and an explicit executor if needed.
+
+`java_multiprocessing`, `java_websocket` and `java_pillow` remain
+available for existing scripts. Process spawning and Pillow wheel availability
+still limit their originals on Windows x64. The `java_pyperclip` module and its
+in-memory fallback have been removed; declare `pyperclip` in requirements and
+use `import pyperclip` instead. Clipboard access requires an available graphical
+session and operating-system permission; headless servers and restricted desktop
+sessions may not provide a usable clipboard.
+
+`websocket-client` works with its normal API after declaring it in requirements:
+
+```python
+import websocket  # requirements.txt: websocket-client
+
+connection = websocket.create_connection('ws://127.0.0.1:8765/', timeout=10)
+try:
+    connection.send('Hello')
+    reply = connection.recv()
+finally:
+    connection.close()
+```
+
+No manual socket is needed, including for `WebSocketApp`. On GraalPy 25.3, PyFish
+probes the library's known default `TCP_KEEPIDLE`, `TCP_KEEPINTVL` and `TCP_KEEPCNT`
+settings when activating the managed environment. Only defaults rejected as
+unsupported are removed, in memory; installed wheels and cache files are not
+modified. `TCP_NODELAY`, `SO_KEEPALIVE` and application-level WebSocket ping/pong
+are retained. TCP keepalive timings use the operating system's defaults instead.
+The adaptation is logged once when applied, including when reusing a cached
+environment. Explicit `sockopt=` settings are never filtered: unsupported options
+requested by a script still fail normally. TLS, proxy setup and reconnect logic
+remain in the original library. The global GraalPy POSIX backend is unchanged.
+
+These helpers are not substituted for native imports when installation fails. Only install
+trusted mods and packages: native extensions run in the Minecraft process and can
+crash it or access the system, just like native code used by a JAR mod.
 
 ## Ore Generation
 

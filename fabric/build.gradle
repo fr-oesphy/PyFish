@@ -82,10 +82,6 @@ dependencies {
         implementation "net.fabricmc:fabric-loader:${fabric_loader_version}"
         implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version_selector}"
     }
-    implementation("org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}") {
-        exclude group: 'org.slf4j', module: 'slf4j-api'
-    }
-    include "org.xerial:sqlite-jdbc:${rootProject.ext.pyfishSqliteJdbcVersion}"
 
     rootProject.ext.pyfishCompileOnlyLibraries.each {
         compileOnly it
@@ -117,6 +113,44 @@ loom {
     }
 }
 
+if (providers.gradleProperty('pyfishClipboardClientTest').isPresent()) {
+    if (pyfish_version_profile_id != 'mc262') {
+        throw new GradleException('The clipboard client diagnostic currently targets mc262.')
+    }
+    sourceSets {
+        clipboardTest {
+            java.srcDir('src/clipboardTest/java')
+            resources.setSrcDirs([file('src/clipboardTest/resources')])
+            compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+            runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
+        }
+    }
+    configurations.clipboardTestImplementation.extendsFrom(configurations.implementation)
+    configurations.clipboardTestRuntimeOnly.extendsFrom(configurations.runtimeOnly)
+    loom.mods {
+        pyfish { sourceSet sourceSets.main }
+        pyfish_clipboard_probe { sourceSet sourceSets.clipboardTest }
+    }
+    loom.runs {
+        clipboardClient {
+            client()
+            source sourceSets.clipboardTest
+            runDir('runs/clipboard-test-mc262')
+            vmArg '-Djava.awt.headless=false'
+            programArg '--username'
+            programArg 'ClipboardTest'
+        }
+    }
+    tasks.named('runClipboardClient') {
+        doFirst {
+            def scripts = file('runs/clipboard-test-mc262/pyfish/clipboard_probe/scripts')
+            scripts.mkdirs()
+            new File(scripts.parentFile, 'requirements.txt').setText('pyperclip==1.11.0\n', 'UTF-8')
+            new File(scripts, 'main.py').setText('import pyperclip\n', 'UTF-8')
+        }
+    }
+}
+
 shadowJar {
     archiveClassifier = 'dev-shadow'
     configurations = [project.configurations.embed]
@@ -131,10 +165,9 @@ shadowJar {
     exclude 'META-INF/proguard/**'
     exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
     exclude 'META-INF/LICENSE*', 'META-INF/DEPENDENCIES', 'META-INF/NOTICE*'
-    // Loom owns the nested driver; never expose a second copy from PyFish's main module.
+    // SQLite now uses GraalPy's native module; do not retain JDBC classes from an old dependency.
     exclude 'org/sqlite/**'
     exclude 'META-INF/versions/*/org/sqlite/**'
-    exclude 'META-INF/maven/org.xerial/sqlite-jdbc/**'
     exclude 'META-INF/services/java.sql.Driver'
     exclude '**/*.bat'
     exclude '**/*.exe'
@@ -180,20 +213,12 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
     doLast {
         def jarFile = runtimeJar.get().archiveFile.get().asFile
         def requiredEntries = [
-                'org.graalvm.python.vfs/fileslist.txt',
                 'pyfish.py',
                 'pyfish-build.properties',
-                'java_asyncio.py',
-                'java_logging.py',
                 'java_multiprocessing.py',
-                'java_pathlib.py',
                 'java_pillow.py',
-                'java_pyperclip.py',
-                'java_requests.py',
-                'java_sqlite3.py',
-                'java_subprocess.py',
-                'java_uuid.py',
                 'java_websocket.py',
+                'python/native_dependencies.py',
                 'pip.whl'
         ]
         def zip = new java.util.zip.ZipFile(jarFile)
@@ -211,6 +236,10 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
             }
 
             def entries = java.util.Collections.list(zip.entries())
+            if (entries.any { entry -> entry.name.contains('__pycache__/')
+                    || entry.name.endsWith('.pyc') || entry.name.endsWith('.pyo') }) {
+                throw new GradleException('PyFish release jar contains local Python bytecode caches.')
+            }
             if (entries.any { entry -> entry.name.startsWith('fr/oesphy/pyfish/gametest/')
                     || entry.name.startsWith('data/pyfish_ore_tests/')
                     || entry.name.startsWith('pyfish/pyfish_ore_tests/') }) {
@@ -228,28 +257,8 @@ def verifyPyFishRuntimeJar = tasks.register('verifyPyFishRuntimeJar') {
                         && entry.name.contains('sqlite-jdbc')
                         && entry.name.endsWith('.jar')
             }
-            if (nestedSqlite == null) {
-                throw new GradleException('PyFish Fabric jar is missing the nested SQLite JDBC driver.')
-            }
-            def modMetadata = new groovy.json.JsonSlurper().parse(zip.getInputStream(zip.getEntry('fabric.mod.json')))
-            if (!(modMetadata.jars ?: []).any { it.file == nestedSqlite.name }) {
-                throw new GradleException('PyFish Fabric metadata does not declare the nested SQLite JDBC driver.')
-            }
-            def nestedZip = new java.util.zip.ZipInputStream(zip.getInputStream(nestedSqlite))
-            try {
-                def containsDriver = false
-                def nestedEntry
-                while ((nestedEntry = nestedZip.nextEntry) != null) {
-                    if (nestedEntry.name == 'org/sqlite/JDBC.class') {
-                        containsDriver = true
-                        break
-                    }
-                }
-                if (!containsDriver) {
-                    throw new GradleException('PyFish Fabric nested SQLite jar is missing org.sqlite.JDBC.')
-                }
-            } finally {
-                nestedZip.close()
+            if (nestedSqlite != null) {
+                throw new GradleException('PyFish Fabric jar still contains the obsolete SQLite JDBC driver.')
             }
         } finally {
             zip.close()
@@ -263,7 +272,8 @@ def smokeTestPyFishRuntimeJar = tasks.register('smokeTestPyFishRuntimeJar', Java
     }
     dependsOn verifyPyFishRuntimeJar, project(':common').tasks.named('testClasses')
     mainClass = 'fr.oesphy.pyfish.runtime.GraalPyRuntimeJarSmokeTest'
-    classpath = files(project(':common').sourceSets.test.output.classesDirs, runtimeJar.flatMap { it.archiveFile })
+    classpath = files(project(':common').sourceSets.test.output, runtimeJar.flatMap { it.archiveFile })
+    environment 'PIP_GRAALPY_PATCHES_URL', 'disabled'
     doFirst {
         delete(layout.buildDirectory.dir('tmp/graalpy-runtime-smoke'))
         args runtimeJar.get().archiveFile.get().asFile.absolutePath,

@@ -123,21 +123,28 @@ public final class GraalPyRuntimeJarSmokeTest {
                         await asyncio.sleep(0)
                         return 42
                     assert asyncio.run(check_async()) == 42
+                    archive = root / 'compressed-package.pyz'
+                    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as package:
+                        package.writestr('pyfish_zip_probe/__init__.py', 'from .value import VALUE\\n')
+                        package.writestr('pyfish_zip_probe/value.py', 'VALUE = 42\\n' + '# zipped source\\n' * 10000)
+                    sys.path.append(str(archive))
+                    import pyfish_zip_probe
+                    assert pyfish_zip_probe.VALUE == 42
                     print('Verified Python', sys.version)
                     """);
             for (String moduleName : List.of(
-                    "java_asyncio",
                     "java_multiprocessing",
-                    "java_requests",
                     "java_websocket",
-                    "java_logging",
-                    "java_pathlib",
-                    "java_pillow",
-                    "java_pyperclip",
-                    "java_sqlite3",
-                    "java_subprocess",
-                    "java_uuid")) {
+                    "java_pillow")) {
                 executeModule(context, moduleName);
+            }
+            NativeDependencyChecks.run(context, cache.resolve("dependency-checks"), pipDirectory);
+            try (InputStream stream = GraalPyRuntimeJarSmokeTest.class.getResourceAsStream("/python/original_libraries.py")) {
+                if (stream == null) throw new IllegalStateException("Original-library tests are missing");
+                String checks = new String(stream.readAllBytes(), StandardCharsets.UTF_8) + "\nrun_standard_checks\n";
+                context.eval(org.graalvm.polyglot.Source.newBuilder("python", checks, "original-standard-library.py")
+                        .option("python.NewGlobals", "true").buildLiteral())
+                        .execute(cache.resolve("original-stdlib").toString());
             }
         }
 

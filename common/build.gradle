@@ -68,7 +68,7 @@ sourceSets {
     }
     test {
         java.srcDir(project.file('src/test/java'))
-        resources.srcDir(project.file('src/test/resources'))
+        resources.setSrcDirs([project.file('src/test/resources')])
         compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
         runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     }

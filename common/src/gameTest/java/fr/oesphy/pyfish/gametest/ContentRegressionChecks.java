@@ -61,6 +61,10 @@ public final class ContentRegressionChecks {
     }
 
     public static void blocks(GameTestHelper helper) {
+        if (java.nio.file.Files.exists(java.nio.file.Path.of("pyfish/pyfish_ore_tests/scripts/native_probe.py"))) {
+            check(item("native_probe") != null && item("native_probe") != Items.AIR,
+                    "Real NumPy calculations did not complete during Python mod startup");
+        }
         var level = helper.getLevel();
         Block block = MinecraftCompat.registryGet(BuiltInRegistries.BLOCK, "pyfish_ore_tests:glass_slab");
         var state = block.defaultBlockState();

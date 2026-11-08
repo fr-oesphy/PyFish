@@ -1,4 +1,19 @@
 // Test code and fixtures are deliberately kept out of the published mod.
+if (providers.gradleProperty('pyfishWebSocketGameTests').isPresent()
+        && !providers.gradleProperty('pyfishNativeGameTests').isPresent()) {
+    throw new GradleException('WebSocket GameTests require -PpyfishNativeGameTests.')
+}
+def websocketTlsDirectory = providers.gradleProperty('pyfishWebSocketTlsDirectory').orNull
+if (websocketTlsDirectory != null) {
+    if (!providers.gradleProperty('pyfishWebSocketGameTests').isPresent()) {
+        throw new GradleException('WebSocket TLS fixtures require -PpyfishWebSocketGameTests.')
+    }
+    ['websocket-test.crt', 'websocket-test.key'].each { name ->
+        if (!new File(rootProject.file(websocketTlsDirectory), name).isFile()) {
+            throw new GradleException("Missing WebSocket TLS test fixture: ${name}")
+        }
+    }
+}
 if (providers.gradleProperty('pyfishGameTests').isPresent()) {
     def structureDataVersions = [mc1211: 3955, mc12111: 4671, mc262: 4903]
     if (!structureDataVersions.containsKey(pyfish_version_profile_id)) {
@@ -72,6 +87,42 @@ if (providers.gradleProperty('pyfishGameTests').isPresent()) {
             copy {
                 from(rootProject.file('common/src/gameTest/resources/pyfish'))
                 into(project.file("runs/ore-tests-${pyfish_version_profile_id}/pyfish"))
+            }
+            def fixture = project.file("runs/ore-tests-${pyfish_version_profile_id}/pyfish/pyfish_ore_tests")
+            if (providers.gradleProperty('pyfishNativeGameTests').isPresent()) {
+                copy {
+                    from(rootProject.file('common/src/nativeTest/resources/pyfish'))
+                    into(project.file("runs/ore-tests-${pyfish_version_profile_id}/pyfish"))
+                }
+                def wheelhouse = providers.gradleProperty('pyfishNativeWheelhouse').orNull
+                def requirements = wheelhouse == null ? ''
+                        : "--no-index\n--find-links \"${rootProject.file(wheelhouse).toURI()}\"\n"
+                new File(fixture, 'requirements.txt').setText(requirements + 'numpy==2.4.4\n', 'UTF-8')
+                if (providers.gradleProperty('pyfishWebSocketGameTests').isPresent()) {
+                    new File(fixture, 'requirements.txt').append('websocket-client==1.9.2\n', 'UTF-8')
+                    copy {
+                        from(rootProject.file('common/src/test/resources/python/original_libraries.py'))
+                        into(fixture)
+                        rename { 'websocket_checks.py' }
+                    }
+                    def tlsDirectory = providers.gradleProperty('pyfishWebSocketTlsDirectory').orNull
+                    if (tlsDirectory != null) {
+                        copy {
+                            from(rootProject.file(tlsDirectory))
+                            include('websocket-test.crt', 'websocket-test.key')
+                            into(fixture)
+                        }
+                    } else {
+                        delete(new File(fixture, 'websocket-test.crt'), new File(fixture, 'websocket-test.key'))
+                    }
+                } else {
+                    delete(new File(fixture, 'websocket_checks.py'), new File(fixture, 'websocket-test.crt'),
+                            new File(fixture, 'websocket-test.key'))
+                }
+            } else {
+                delete(new File(fixture, 'requirements.txt'), new File(fixture, 'scripts/native_probe.py'),
+                        new File(fixture, 'websocket_checks.py'), new File(fixture, 'websocket-test.crt'),
+                        new File(fixture, 'websocket-test.key'))
             }
         }
     }

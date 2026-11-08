@@ -66,8 +66,11 @@ class PythonModuleScannerTest {
     void corePythonHelpersStayAvailableAsResources() {
         ClassLoader classLoader = PythonModuleScannerTest.class.getClassLoader();
         assertNotNull(classLoader.getResource("pyfish.py"));
-        assertNotNull(classLoader.getResource("java_logging.py"));
-        assertNotNull(classLoader.getResource("java_requests.py"));
+        assertNotNull(classLoader.getResource("java_multiprocessing.py"));
+        assertNotNull(classLoader.getResource("java_pillow.py"));
+        for (String removed : java.util.List.of("asyncio", "logging", "pathlib", "uuid", "sqlite3", "subprocess", "requests", "pyperclip")) {
+            org.junit.jupiter.api.Assertions.assertNull(classLoader.getResource("java_" + removed + ".py"));
+        }
     }
 
     private void writeEntry(ZipOutputStream zipOutputStream, String name, String content) throws IOException {

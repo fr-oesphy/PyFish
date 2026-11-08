@@ -42,7 +42,6 @@ def versionProfileOverrides = [
 
 ext {
     graalPyVersion = '25.3.4.1'
-    pyfishSqliteJdbcVersion = '3.46.0.0'
     pyfishCompileOnlyLibraries = [
             'org.slf4j:slf4j-api:2.0.9'
     ]
@@ -81,6 +80,20 @@ allprojects {
 
 subprojects {
     description = mod_description
+
+    tasks.withType(ProcessResources).configureEach {
+        exclude '**/__pycache__/**', '**/*.pyc', '**/*.pyo'
+        // Copy tasks otherwise retain deleted resources in incremental builds.
+        // Retired Python helpers must not survive in the next packaged JAR.
+        doFirst {
+            def destination = destinationDir.canonicalFile.toPath()
+            def buildRoot = project.layout.buildDirectory.get().asFile.canonicalFile.toPath()
+            if (!destination.startsWith(buildRoot) || destination == buildRoot) {
+                throw new GradleException("Resource output is outside the project build directory: ${destination}")
+            }
+            project.delete(destination.toFile())
+        }
+    }
 
     tasks.withType(Javadoc).configureEach {
         options.addStringOption('Xdoclint:none', '-quiet')

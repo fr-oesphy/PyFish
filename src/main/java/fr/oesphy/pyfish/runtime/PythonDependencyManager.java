@@ -1,221 +1,163 @@
 package fr.oesphy.pyfish.runtime;
 
+import com.google.gson.Gson;
 import fr.oesphy.pyfish.PyFish;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.List;
 import org.graalvm.polyglot.Context;
+import org.graalvm.polyglot.Source;
 import org.graalvm.polyglot.Value;
 import org.slf4j.Logger;
-import java.io.ByteArrayOutputStream;
-import java.io.OutputStream;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-public class PythonDependencyManager {
+public final class PythonDependencyManager {
     private static final Logger LOGGER = PyFish.LOGGER;
     private final Path libsRoot;
-    private final java.util.Map<String, String> pending = new java.util.LinkedHashMap<>();
+    private final Map<String, String> requirements = new TreeMap<>();
+    private boolean prepared;
+    private RuntimeException declarationError;
 
     public PythonDependencyManager() {
-        // Keep third-party packages out of the game and loader classpaths. Each mod gets a
-        // target directory that can be added to GraalPy's sys.path independently.
-        this.libsRoot = Paths.get("pyfish", "libs");
-        try {
-            Files.createDirectories(this.libsRoot);
-        } catch (IOException e) {
-            LOGGER.error("[PyFish] Could not create libs directory: {}", e.getMessage());
-        }
+        this(Path.of("pyfish", "libs"));
     }
 
-    /**
-     * Materializes a mod's requirements into its private target directory. The hash marker
-     * is written only after pip succeeds, so interrupted installations are retried.
-     */
-    public Path installDependencies(String modId, String requirementsContent) {
-        if (requirementsContent == null || requirementsContent.isBlank()) return null;
-        pending.put(modId, requirementsContent);
-        return libsRoot.resolve(modId);
+    PythonDependencyManager(Path libsRoot) {
+        this.libsRoot = libsRoot.toAbsolutePath().normalize();
     }
 
-    public void prepareDependencies(Context context) {
-        for (var entry : pending.entrySet()) {
-            if (installDependenciesNow(context, entry.getKey(), entry.getValue()) == null) {
-                throw new IllegalStateException("Could not install Python dependencies for " + entry.getKey());
+    /** Records declarations before any script is allowed to import third-party packages. */
+    public synchronized Path installDependencies(String modId, String content) {
+        if (content == null || content.isBlank()) {
+            if (prepared && requirements.containsKey(modId)) {
+                throw new IllegalStateException("Python requirements removed for " + modId + "; restart Minecraft");
             }
-        }
-        pending.clear();
-    }
-
-    private Path installDependenciesNow(Context context, String modId, String requirementsContent) {
-        if (requirementsContent == null || requirementsContent.isBlank()) {
             return null;
         }
-
-        try {
-            String hash = requirementsHash(requirementsContent, GraalPyRuntimeResources.GRAALPY_VERSION,
-                    System.getProperty("os.name") + "/" + System.getProperty("os.arch"));
-            Path modLibPath = libsRoot.resolve(modId);
-            Path hashFile = modLibPath.resolve(".hash");
-
-            // A matching requirements file does not make native wheels portable across
-            // interpreter upgrades or platforms.
-            if (Files.exists(modLibPath) && Files.exists(hashFile)) {
-                String existingHash = Files.readString(hashFile);
-                if (existingHash.trim().equals(hash)) {
-                    LOGGER.info("[PyFish] Dependencies for '{}' are up to date.", modId);
-                    return modLibPath;
-                }
-            }
-
-            LOGGER.info("[PyFish] Installing dependencies for '{}'...", modId);
-
-            // pip --target adds and overwrites files but does not reliably remove packages
-            // dropped from requirements, so changed declarations start from a clean target.
-            if (Files.exists(modLibPath)) {
-                deleteDirectory(modLibPath.toFile());
-            }
-            Files.createDirectories(modLibPath);
-
-            boolean success = installWithPip(context, modId, modLibPath, requirementsContent);
-
-            if (success) {
-                Files.writeString(hashFile, hash);
-                LOGGER.info("[PyFish] Dependencies for '{}' installed successfully.", modId);
-                return modLibPath;
-            } else {
-                LOGGER.error("[PyFish] Failed to install dependencies for '{}'.", modId);
-                return null;
-            }
-
-        } catch (Exception e) {
-            LOGGER.error("[PyFish] Error managing dependencies for '{}': {}", modId, e.getMessage());
-            e.printStackTrace();
-            return null;
+        String normalized = content.replace("\r\n", "\n").strip();
+        if (normalized.equals(requirements.get(modId))) return null;
+        if (prepared) {
+            throw new IllegalStateException("Python requirements changed for " + modId
+                    + "; restart Minecraft. The active native environment has not been modified.");
         }
+        String previous = requirements.putIfAbsent(modId, normalized);
+        if (previous != null) {
+            declarationError = new IllegalStateException("Different Python requirements declared for mod " + modId);
+            throw declarationError;
+        }
+        return null;
     }
 
-    private Path ensurePipExtracted() {
-        Path pipDir = libsRoot.resolve("pip_extracted").resolve(GraalPyRuntimeResources.GRAALPY_VERSION);
-        if (!Files.exists(pipDir)) {
-            try (java.io.InputStream is = getClass().getClassLoader().getResourceAsStream("pip.whl")) {
-                if (is == null) {
-                    LOGGER.error("[PyFish] pip.whl not found in resources!");
-                    return null;
+    public synchronized void prepareDependencies(Context context) {
+        if (declarationError != null) throw declarationError;
+        if (prepared) return;
+        if (requirements.isEmpty()) {
+            prepared = true;
+            return;
+        }
+
+        Value installation = null;
+        try {
+            Files.createDirectories(libsRoot);
+            // Multiple Minecraft instances may share a profile. Only installations are locked;
+            // completed generations remain immutable while native DLLs are mapped.
+            try (FileChannel channel = FileChannel.open(libsRoot.resolve(".installation.lock"),
+                    StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                 var ignored = channel.lock()) {
+                Path pipDirectory = ensurePipExtracted();
+                String declarations = new Gson().toJson(requirements);
+                String requestKey = requirementsHash(declarations,
+                        GraalPyRuntimeResources.GRAALPY_VERSION + "/binary-only-v1/" + pipDirectory.getFileName(),
+                        System.getProperty("os.name") + "/" + System.getProperty("os.arch"));
+                String helper;
+                try (InputStream stream = getClass().getResourceAsStream("/python/native_dependencies.py")) {
+                    if (stream == null) throw new IOException("Native dependency installer resource is missing");
+                    helper = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
                 }
-                Files.createDirectories(pipDir);
-                try (ZipInputStream zis = new ZipInputStream(is)) {
-                    ZipEntry entry;
-                    while ((entry = zis.getNextEntry()) != null) {
-                        Path entryPath = pipDir.resolve(entry.getName());
-                        // Wheel paths are still archive input; do not allow a malformed bundled
-                        // wheel to escape the extraction directory.
-                        if (!entryPath.normalize().startsWith(pipDir.normalize())) {
-                            continue;
-                        }
-                        if (entry.isDirectory()) {
-                            Files.createDirectories(entryPath);
-                        } else {
-                            Files.createDirectories(entryPath.getParent());
-                            Files.deleteIfExists(entryPath);
-                            Files.copy(zis, entryPath);
-                        }
-                        zis.closeEntry();
+                Source source = Source.newBuilder("python", helper, "pyfish-native-dependencies.py")
+                        .option("python.NewGlobals", "true").buildLiteral();
+                installation = context.eval(source).execute(libsRoot.toString(), declarations,
+                        GraalPyRuntimeResources.GRAALPY_VERSION, pipDirectory.toString(), requestKey);
+                boolean cached = installation.getMember("cached").asBoolean();
+                if (!cached) {
+                    LOGGER.info("[PyFish/Packages] Resolving GraalPy wheels for mods {}", requirements.keySet());
+                    Value args = installation.invokeMember("arguments");
+                    List<String> arguments = new ArrayList<>();
+                    for (long index = 0; index < args.getArraySize(); index++) {
+                        arguments.add(args.getArrayElement(index).asString());
                     }
+                    if (!PythonPipRunner.run(context, arguments, pipDirectory)) {
+                        throw new IllegalStateException("No compatible wheel set could be resolved for mods "
+                                + requirements.keySet() + ". Check the pip messages above for version conflicts or "
+                                + "unavailable GraalPy wheels. CPython wheels and automatic source builds are not supported.");
+                    }
+                    installation.invokeMember("commit");
                 }
-                LOGGER.info("[PyFish] Extracted pip.whl to {}", pipDir);
-            } catch (IOException e) {
-                LOGGER.error("[PyFish] Failed to extract pip.whl", e);
-                return null;
+                String report = installation.invokeMember("activate").asString();
+                String compatibility = installation.getMember("compatibility_notice").asString();
+                if (!compatibility.isBlank()) LOGGER.warn("[PyFish/Packages] {}", compatibility);
+                LOGGER.info("[PyFish/Packages] {} environment: {}", cached ? "Reusing" : "Installed", report);
+                prepared = true;
             }
+        } catch (Exception error) {
+            if (installation != null) {
+                try {
+                    installation.invokeMember("abort");
+                } catch (Exception cleanup) {
+                    error.addSuppressed(cleanup);
+                }
+            }
+            throw new IllegalStateException("Could not prepare Python packages for " + requirements.keySet()
+                    + " with GraalPy " + GraalPyRuntimeResources.GRAALPY_VERSION
+                    + " on " + System.getProperty("os.name") + "/" + System.getProperty("os.arch"), error);
         }
-        return pipDir;
     }
 
-    private boolean installWithPip(Context context, String modId, Path targetDir, String requirementsContent) {
-        Path pipDir = ensurePipExtracted();
-        if (pipDir == null) {
-            LOGGER.error("[PyFish] Cannot install dependencies because pip extraction failed.");
-            return false;
+    private Path ensurePipExtracted() throws Exception {
+        byte[] wheel;
+        try (InputStream stream = getClass().getResourceAsStream("/pip.whl")) {
+            if (stream == null) throw new IOException("Bundled GraalPy pip wheel is missing");
+            wheel = stream.readAllBytes();
         }
-
-        try {
-
-            // Let pip parse the original file. Reconstructing argv entries here would subtly
-            // break markers, continuation lines and index options.
-            Path reqFile = targetDir.resolve("requirements.txt");
-            Files.writeString(reqFile, requirementsContent);
-
-            LOGGER.info("[PyFish] Running pip install target={} requirements={}", targetDir, reqFile);
-
-            return PythonPipRunner.run(context, List.of("pip", "install", "--no-cache-dir",
-                    "--disable-pip-version-check", "--no-input", "--isolated", "--target",
-                    targetDir.toAbsolutePath().toString(), "--requirement", reqFile.toAbsolutePath().toString(),
-                    "--no-warn-script-location"), pipDir);
-
-        } catch (Exception e) {
-            LOGGER.error("[PyFish] Pip installation failed: " + e.getMessage());
-            return false;
+        String checksum = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(wheel));
+        Path directory = libsRoot.resolve("pip_extracted")
+                .resolve(GraalPyRuntimeResources.GRAALPY_VERSION + "-" + checksum.substring(0, 16));
+        Path marker = directory.resolve(".complete");
+        if (Files.isRegularFile(marker) && Files.readString(marker).equals(checksum)
+                && Files.isRegularFile(directory.resolve("pip/__main__.py"))) {
+            return directory;
         }
+        Files.createDirectories(directory);
+        try (ZipInputStream zip = new ZipInputStream(new java.io.ByteArrayInputStream(wheel))) {
+            ZipEntry entry;
+            while ((entry = zip.getNextEntry()) != null) {
+                Path target = directory.resolve(entry.getName()).normalize();
+                if (!target.startsWith(directory)) throw new IOException("Unsafe path in bundled pip wheel");
+                if (entry.isDirectory()) Files.createDirectories(target);
+                else {
+                    Files.createDirectories(target.getParent());
+                    Files.copy(zip, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        }
+        Files.writeString(marker, checksum, StandardCharsets.US_ASCII);
+        return directory;
     }
 
     static String requirementsHash(String content, String runtimeVersion, String platform) throws Exception {
-        return computeHash(runtimeVersion + "\n" + platform + "\n" + content);
-    }
-
-    private static String computeHash(String content) throws Exception {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] hash = digest.digest(content.getBytes("UTF-8"));
-        StringBuilder hexString = new StringBuilder();
-        for (byte b : hash) {
-            String hex = Integer.toHexString(0xff & b);
-            if (hex.length() == 1)
-                hexString.append('0');
-            hexString.append(hex);
-        }
-        return hexString.toString();
-    }
-
-    private void deleteDirectory(File directoryToBeDeleted) {
-        File[] allContents = directoryToBeDeleted.listFiles();
-        if (allContents != null) {
-            for (File file : allContents) {
-                deleteDirectory(file);
-            }
-        }
-        directoryToBeDeleted.delete();
-    }
-
-    // pip writes progress to process streams; line buffering prevents partial messages from
-    // interleaving with loader logs.
-    private static class LoggingOutputStream extends OutputStream {
-        private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        private final boolean isError;
-
-        public LoggingOutputStream(boolean isError) {
-            this.isError = isError;
-        }
-
-        @Override
-        public void write(int b) throws IOException {
-            if (b == '\n') {
-                String message = buffer.toString("UTF-8");
-                if (!message.isBlank()) {
-                    if (isError) {
-                        LOGGER.error("[PyFish/Pip] {}", message);
-                    } else {
-                        LOGGER.info("[PyFish/Pip] {}", message);
-                    }
-                }
-                buffer.reset();
-            } else {
-                buffer.write(b);
-            }
-        }
+        byte[] bytes = (runtimeVersion + "\n" + platform + "\n" + content).getBytes(StandardCharsets.UTF_8);
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
     }
 }
