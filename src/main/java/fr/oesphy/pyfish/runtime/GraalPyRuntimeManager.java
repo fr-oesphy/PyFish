@@ -11,8 +11,6 @@ import net.minecraft.server.level.ServerPlayer;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.Value;
-import org.graalvm.python.embedding.GraalPyResources;
-import org.graalvm.python.embedding.VirtualFileSystem;
 import org.slf4j.Logger;
 
 import java.io.ByteArrayOutputStream;
@@ -48,6 +46,7 @@ public class GraalPyRuntimeManager {
     // A single context keeps imported modules and Python callback objects alive between
     // Minecraft events. PYZ entrypoints still get their own globals in PyFishPyzExecutor.
     private Context sharedContext;
+    private RuntimeException initializationFailure;
     private final LoggingOutputStream stdout;
     private final LoggingOutputStream stderr;
 
@@ -75,6 +74,7 @@ public class GraalPyRuntimeManager {
     }
 
     private synchronized Context getContext() {
+        if (initializationFailure != null) throw initializationFailure;
         if (sharedContext == null) {
             LOGGER.info("[PyFish] Creating GraalPy context...");
 
@@ -96,11 +96,11 @@ public class GraalPyRuntimeManager {
                     runtimeHome.get().configure(contextBuilder);
                     LOGGER.info("[PyFish] Using extracted GraalPy runtime: {}", runtimeHome.get().root());
                 } else {
-                    // Gradle development runs keep GraalPy as separate classpath entries.
-                    VirtualFileSystem virtualFileSystem = VirtualFileSystem.newBuilder()
-                            .resourceLoadingClass(GraalPyRuntimeManager.class)
-                            .build();
-                    contextBuilder = GraalPyResources.contextBuilder(virtualFileSystem);
+                    // No virtualenv is bundled at build time. Real host IO also preserves
+                    // the atomic renames pip needs when writing package metadata.
+                    contextBuilder = Context.newBuilder()
+                            .option("python.PosixModuleBackend", "java")
+                            .option("python.DontWriteBytecodeFlag", "true");
                     LOGGER.debug("[PyFish] Using classpath GraalPy resources for a development runtime.");
                 }
 
@@ -117,7 +117,6 @@ public class GraalPyRuntimeManager {
                         .err(stderr)
                         .allowExperimentalOptions(true)
                         .option("python.EmulateJython", "true")
-                        .option("python.IsolateNativeModules", "true")
                         .option("engine.WarnInterpreterOnly", "false");
 
                 if (runtimeResourceRoot.isEmpty()) {
@@ -125,6 +124,7 @@ public class GraalPyRuntimeManager {
                 }
 
                 ctx = contextBuilder.build();
+                dependencyManager.prepareDependencies(ctx);
                 initContext(ctx);
                 // Do not publish a half-initialized context: subsequent calls cannot repair
                 // a missing pyfish module or partially populated sys.modules.
@@ -136,9 +136,11 @@ public class GraalPyRuntimeManager {
                     ctx.close(true);
                 }
                 LOGGER.error("[PyFish] Failed to create or initialize GraalPy context", e);
-                throw new RuntimeException("Failed to initialize Python runtime", e);
+                initializationFailure = new RuntimeException("Failed to initialize Python runtime; fix the reported dependencies and restart Minecraft", e);
+                throw initializationFailure;
             }
         }
+        dependencyManager.prepareDependencies(sharedContext);
         return sharedContext;
     }
 
@@ -362,18 +364,6 @@ public class GraalPyRuntimeManager {
                 bindings.putMember("world", world);
             if (player != null)
                 bindings.putMember("player", player);
-
-            if (modId != null) {
-                Path libPath = Paths.get("pyfish", "libs", modId).toAbsolutePath();
-                if (Files.exists(libPath)) {
-                    String pathStr = libPath.toString().replace("\\", "\\\\");
-                    // sys.path belongs to the shared interpreter and survives event callbacks;
-                    // keep it stable when the same script is executed more than once.
-                    context.eval("python",
-                            "import sys; p='" + pathStr + "'; sys.path.append(p) if p not in sys.path else None");
-                    LOGGER.debug("[PyFish] Added lib path: {}", libPath);
-                }
-            }
 
             LOGGER.info("[PyFish] Executing script: {} (Mod: {})", name, modId);
             try (PyFishScriptContext.Scope ignored = PyFishScriptContext.push(modId)) {

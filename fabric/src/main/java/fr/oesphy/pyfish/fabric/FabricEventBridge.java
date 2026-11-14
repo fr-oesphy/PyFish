@@ -3,15 +3,14 @@ package fr.oesphy.pyfish.fabric;
 import fr.oesphy.pyfish.PyFish;
 import fr.oesphy.pyfish.compat.MinecraftCompat;
 import fr.oesphy.pyfish.api.event.PyFishEventObjects;
+import fr.oesphy.pyfish.fabric.compat.FabricVersionCompat;
 import fr.oesphy.pyfish.platform.PlatformEventBridge;
 import net.fabricmc.fabric.api.event.Event;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
-import net.fabricmc.fabric.api.entity.event.v1.ServerEntityWorldChangeEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerWorldEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.message.v1.ServerMessageEvents;
@@ -160,7 +159,7 @@ public class FabricEventBridge implements PlatformEventBridge {
                 yield true;
             }
             case "on_level_load" -> {
-                ServerWorldEvents.LOAD.register(
+                FabricVersionCompat.onLevelLoad(
                         (server, world) -> dispatch("on_level_load", new Object[] { new PyFishEventObjects.LevelEvent(world) }));
                 yield true;
             }
@@ -173,12 +172,12 @@ public class FabricEventBridge implements PlatformEventBridge {
                 yield true;
             }
             case "on_level_unload" -> {
-                ServerWorldEvents.UNLOAD.register(
+                FabricVersionCompat.onLevelUnload(
                         (server, world) -> dispatch("on_level_unload", new Object[] { new PyFishEventObjects.LevelEvent(world) }));
                 yield true;
             }
             case "on_level_tick" -> {
-                ServerTickEvents.END_WORLD_TICK.register(
+                FabricVersionCompat.onLevelTick(
                         world -> dispatch("on_level_tick", new Object[] { new PyFishEventObjects.LevelEvent(world) }));
                 yield true;
             }
@@ -189,15 +188,10 @@ public class FabricEventBridge implements PlatformEventBridge {
                 yield true;
             }
             case "on_entity_dimension_change" -> {
-                ServerEntityWorldChangeEvents.AFTER_ENTITY_CHANGE_WORLD.register(
-                        (originalEntity, newEntity, origin, destination) -> dispatch("on_entity_dimension_change",
+                FabricVersionCompat.onDimensionChange(
+                        (entity, origin, destination) -> dispatch("on_entity_dimension_change",
                                 new Object[] {
-                                        new PyFishEventObjects.EntityDimensionChangeEvent(origin, destination, newEntity)
-                                }));
-                ServerEntityWorldChangeEvents.AFTER_PLAYER_CHANGE_WORLD.register(
-                        (player, origin, destination) -> dispatch("on_entity_dimension_change",
-                                new Object[] {
-                                        new PyFishEventObjects.EntityDimensionChangeEvent(origin, destination, player)
+                                        new PyFishEventObjects.EntityDimensionChangeEvent(origin, destination, entity)
                                 }));
                 yield true;
             }

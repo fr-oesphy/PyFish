@@ -103,7 +103,10 @@ public final class PyFishContentSupport {
 
     public static Block createBlock(String namespace, String path, Map<String, Object> properties,
             Map<String, Object> capturedEvents) {
-        return new ModularBlock(parseBlockProperties(namespace, path, properties), normalizeEvents(capturedEvents));
+        ModularBlock block = new ModularBlock(parseBlockProperties(namespace, path, properties),
+                normalizeEvents(capturedEvents), properties == null ? Map.of() : properties);
+        if (namespace != null && path != null) block.bindLootTable(namespace + ":" + path);
+        return block;
     }
 
     public static Block createBlock(Map<String, Object> properties) {
@@ -111,11 +114,15 @@ public final class PyFishContentSupport {
     }
 
     public static Block createBlock(Map<String, Object> properties, Map<String, Object> capturedEvents) {
-        return new ModularBlock(parseBlockProperties(properties), normalizeEvents(capturedEvents));
+        return new ModularBlock(parseBlockProperties(properties), normalizeEvents(capturedEvents), properties == null ? Map.of() : properties);
     }
 
     public static BlockItem createBlockItem(String namespace, String path, Block block) {
-        return new BlockItem(block, parseItemProperties(namespace, path, null));
+        return createBlockItem(namespace, path, block, Map.of());
+    }
+
+    public static BlockItem createBlockItem(String namespace, String path, Block block, Map<String, Object> properties) {
+        return new BlockItem(block, parseItemProperties(namespace, path, properties));
     }
 
     public static BlockItem createBlockItem(Block block) {
@@ -135,7 +142,7 @@ public final class PyFishContentSupport {
         if (Boolean.TRUE.equals(properties.get("fireResistant"))) {
             itemProperties.fireResistant();
         }
-        if (properties.containsKey("durability")) {
+        if (properties.get("durability") instanceof Number durability && durability.intValue() > 0) {
             itemProperties.durability(((Number) properties.get("durability")).intValue());
         }
 
@@ -150,7 +157,7 @@ public final class PyFishContentSupport {
         BlockBehaviour.Properties blockProperties = BlockBehaviour.Properties.of();
         bindPropertyId(blockProperties, Registries.BLOCK, namespace, path);
         if (properties == null) {
-            return blockProperties;
+            return ContentProperties.applyBlock(blockProperties, properties);
         }
 
         if (properties.containsKey("destroyTime")) {
@@ -163,7 +170,7 @@ public final class PyFishContentSupport {
             blockProperties.requiresCorrectToolForDrops();
         }
 
-        return blockProperties;
+        return ContentProperties.applyBlock(blockProperties, properties);
     }
 
     public static BlockBehaviour.Properties parseBlockProperties(Map<String, Object> properties) {
@@ -241,10 +248,7 @@ public final class PyFishContentSupport {
 
     public static void generateBlockResources(String blockId, Map<String, Object> properties) {
         String resolvedId = PyFishResourceGenerator.resolveIdentifier(blockId, PyFish.MODID);
-        Object texture = properties != null ? properties.get("texture") : null;
-        PyFishResourceGenerator.generateBlockState(resolvedId);
-        PyFishResourceGenerator.generateBlockModel(resolvedId, texture);
-        PyFishResourceGenerator.generateBlockItemModel(resolvedId);
+        PyFishResourceGenerator.generateBlockResources(resolvedId, properties == null ? Map.of() : properties);
     }
 
     @SuppressWarnings("unchecked")
@@ -258,7 +262,7 @@ public final class PyFishContentSupport {
         }
 
         Object rawEvents = properties.get("events");
-        Map<String, Object> events = new HashMap<>();
+        Map<String, Object> events = new CapturedEvents();
         if (rawEvents instanceof Map<?, ?> rawMap) {
             rawMap.forEach((key, value) -> captureEventCandidate(events, key, value));
             return events;
@@ -389,7 +393,7 @@ public final class PyFishContentSupport {
             return repairItem != null ? Ingredient.of(repairItem) : emptyIngredient();
         };
 
-        TagKey<Block> incorrectBlocks = BlockTags.INCORRECT_FOR_IRON_TOOL;
+        TagKey<Block> incorrectBlocks = ContentProperties.incorrectBlocks(properties);
 
         try {
             Class<?> factoryClass = Class.forName("fr.oesphy.pyfish.content.PyFishLegacyTierFactory");
@@ -435,7 +439,7 @@ public final class PyFishContentSupport {
             Class<?> toolMaterialClass = Class.forName("net.minecraft.world.item.ToolMaterial");
             Object repairTag = MinecraftCompat.createTagKey(Registries.ITEM, repairTagId);
             Constructor<?> constructor = toolMaterialClass.getConstructors()[0];
-            return constructor.newInstance(BlockTags.INCORRECT_FOR_IRON_TOOL, uses, speed, damageBonus,
+            return constructor.newInstance(ContentProperties.incorrectBlocks(properties), uses, speed, damageBonus,
                     enchantmentValue, repairTag);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException("Unable to construct ToolMaterial", e);

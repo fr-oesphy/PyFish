@@ -2,7 +2,7 @@
 
 ![PyFish Logo](https://cdn.modrinth.com/data/bdP4b2gP/a01bf99421098f66b65ad2d4006a5337a18a58f0.png)
 
-[![Minecraft](https://img.shields.io/badge/Minecraft-1.21.1--1.21.11-brightgreen.svg)](https://www.minecraft.net/)
+[![Minecraft](https://img.shields.io/badge/Minecraft-1.21.x%20%7C%2026.2-brightgreen.svg)](https://www.minecraft.net/)
 [![Fabric](https://img.shields.io/badge/Fabric-Multi--profile-yellow.svg)](https://fabricmc.net/)
 [![NeoForge](https://img.shields.io/badge/NeoForge-Multi--profile-orange.svg)](https://neoforged.net/)
 [![Python](https://img.shields.io/badge/Python-GraalPy-blue.svg)](https://graalpy.org/jvm-developers/)
@@ -10,6 +10,12 @@
 
 PyFish is a multiloader Minecraft mod that embeds GraalPy so Python scripts can
 run directly inside the game on Fabric and NeoForge.
+
+The embedded runtime is GraalPy 25.3.4.1 (Python 3.13). No system Python
+installation is required. Python packages must be compatible with GraalPy;
+native wheels built for CPython are not interchangeable.
+Cached requirements are reinstalled automatically when the GraalPy version or
+platform changes, so Python 3.12 native packages are not reused with Python 3.13.
 
 It supports three main workflows:
 
@@ -29,8 +35,9 @@ It supports three main workflows:
 
 ## Supported Environment
 
-- Minecraft `1.21.1` through `1.21.11`
-- Java `21`
+- Minecraft `1.21.1` through `1.21.11`, and `26.2`
+- Java `25` for all Minecraft profiles
+- Fabric Loader `0.20.1` or newer when using Fabric
 - Fabric Loader or NeoForge matching the selected build profile
 
 ## Installation
@@ -57,7 +64,7 @@ Example instance layout:
 ```text
 .minecraft/
 |-- mods/
-|   |-- pyfish-neoforge-1.21.11-1.2.6.jar
+|   |-- pyfish-neoforge-1.21.11-1.3.0.jar
 |   `-- example_mod-1.0.0.pyz
 |-- config/
 `-- pyfish/
@@ -83,6 +90,101 @@ Static resources follow the normal Minecraft layout:
 - external namespace folders: `pyfish/<namespace>/assets/<namespace>/...` and `pyfish/<namespace>/data/<namespace>/...`
 - `.pyz` mods: `src/assets/<namespace>/...` and `src/data/<namespace>/...`
 - loader JAR mods: `src/main/resources/assets/<namespace>/...` and `src/main/resources/data/<namespace>/...`
+
+## Python Packages and Native Extensions
+
+Put a `requirements.txt` beside a directory mod's `scripts/` folder, at the root
+of a `.pyz`, or under `pyfish/<namespace>/` in a loader JAR. For example:
+
+```text
+numpy>=2.4,<3
+```
+
+Then import the real package normally:
+
+```python
+import numpy as np
+
+matrix = np.array([[1., 2.], [3., 5.]])
+determinant = float(np.linalg.det(matrix))
+```
+
+PyFish uses the patched pip shipped with GraalPy and searches PyPI plus the
+official GraalPy wheel repository. It accepts pure-Python wheels and compatible
+native wheels. A CPython wheel is not interchangeable with a GraalPy wheel.
+Availability depends on the Python version, operating system and architecture;
+the existence of a CPython package does not guarantee a usable GraalPy binary.
+There is no automatic source compilation or compiler installation. If no compatible
+wheel exists, choose another supported version or supply a GraalPy-built wheel
+using a wheel URL or pip's `--find-links` directive.
+Some wheels also require operating-system libraries or drivers, which PyFish does
+not install.
+
+All mods share one interpreter and one resolved package environment. Their
+requirements are resolved together, including version ranges, extras, markers and
+transitive dependencies. Incompatible constraints or different distributions
+overwriting the same import file stop installation rather than silently selecting
+one mod's version. Conflicting primary-index settings are rejected as well.
+Flat requirements files are supported; nested `-r`/`-c` files,
+editable installs and source URLs are not. Index options and `--require-hashes`
+remain available through pip's requirements-file syntax. PyFish manages pip itself;
+mods must not replace it.
+
+Environments live under `pyfish/libs/environments/`, partitioned by GraalPy, Python
+ABI, platform and requirements. Installation is locked and staged before an
+environment becomes usable. Complete generations are reused offline; incomplete
+or damaged ones are rebuilt. `manifest.json` records selected versions, wheel tags
+and native files. Older per-mod `pyfish/libs/<namespace>/` installations are left
+alone but are no longer added to the interpreter's import path. Restart Minecraft
+after changing requirements: native libraries cannot safely be swapped during a
+script reload. Package downloads require a network connection on first installation
+unless every wheel is supplied locally (`--no-index` and `--find-links`). GraalPy's
+patch updater can be disabled separately with `PIP_GRAALPY_PATCHES_URL=disabled`.
+
+The redundant `java_asyncio`, `java_logging`, `java_pathlib`, `java_uuid`,
+`java_sqlite3`, `java_subprocess` and `java_requests` modules have been removed.
+Use the original imports (`asyncio`, `logging`, `pathlib`, `uuid`, `sqlite3`,
+`subprocess`, `requests`) instead. Only `requests` needs a requirements entry;
+the other six are part of the bundled standard library. SQLite uses GraalPy's
+original module, not JDBC. This is an API migration, not a transparent alias:
+Java-only additions such as `java_requests.get_async` have no direct equivalent
+in `requests`; use its normal API and an explicit executor if needed.
+
+`java_multiprocessing`, `java_websocket` and `java_pillow` remain
+available for existing scripts. Process spawning and Pillow wheel availability
+still limit their originals on Windows x64. The `java_pyperclip` module and its
+in-memory fallback have been removed; declare `pyperclip` in requirements and
+use `import pyperclip` instead. Clipboard access requires an available graphical
+session and operating-system permission; headless servers and restricted desktop
+sessions may not provide a usable clipboard.
+
+`websocket-client` works with its normal API after declaring it in requirements:
+
+```python
+import websocket  # requirements.txt: websocket-client
+
+connection = websocket.create_connection('ws://127.0.0.1:8765/', timeout=10)
+try:
+    connection.send('Hello')
+    reply = connection.recv()
+finally:
+    connection.close()
+```
+
+No manual socket is needed, including for `WebSocketApp`. On GraalPy 25.3, PyFish
+probes the library's known default `TCP_KEEPIDLE`, `TCP_KEEPINTVL` and `TCP_KEEPCNT`
+settings when activating the managed environment. Only defaults rejected as
+unsupported are removed, in memory; installed wheels and cache files are not
+modified. `TCP_NODELAY`, `SO_KEEPALIVE` and application-level WebSocket ping/pong
+are retained. TCP keepalive timings use the operating system's defaults instead.
+The adaptation is logged once when applied, including when reusing a cached
+environment. Explicit `sockopt=` settings are never filtered: unsupported options
+requested by a script still fail normally. TLS, proxy setup and reconnect logic
+remain in the original library. The global GraalPy POSIX backend is unchanged.
+
+These helpers are not substituted for native imports when installation fails. Only install
+trusted mods and packages: native extensions run in the Minecraft process and can
+crash it or access the system, just like native code used by a JAR mod.
 
 ## Ore Generation
 
@@ -121,10 +223,130 @@ from release JARs:
 ```text
 .\gradlew.bat -PpyfishGameTests :fabric:runGameTest :neoforge:runGameTestServer
 .\gradlew.bat -PpyfishGameTests -PpyfishVersionProfile=mc12111 :fabric:runGameTest :neoforge:runGameTestServer
+.\gradlew.bat -PpyfishGameTests -PpyfishVersionProfile=mc262 :fabric:runGameTest :neoforge:runGameTestServer
 ```
 
-The suite checks fresh noise-generated chunks, stone/deepslate replacement,
+The GameTest suite targets `mc1211`, `mc12111` and `mc262` (JDK 25). It checks
+fresh noise-generated chunks, stone/deepslate replacement,
 height constraints, untouched non-target blocks, and excluded biomes.
+It also exercises block properties and loot, tool tiers, real crafting and
+recipe removal/replacement, Python interaction results, inventory overflow,
+and parameterized particles. These are server tests; they do not validate
+on-screen rendering. Unit tests additionally inspect generated render metadata.
+
+## Content Properties
+
+Block properties can configure the physical block as well as its item:
+
+```python
+from pyfish import blocks
+
+blocks.register_block("glass_slab", {
+    "texture": "block/glass_slab",
+    "renderType": "translucent",
+    "shape": [0, 0, 0, 16, 8, 16],
+    "lightLevel": 7,
+    "sound": "glass",
+    "miningTool": "pickaxe",
+    "requiredTier": 2,
+    "requiresCorrectToolForDrops": True,
+    "stacksTo": 16,
+})
+```
+
+| Property | Meaning |
+| --- | --- |
+| `renderType` | `solid` (default), `cutout`, `cutout_mipped`, or `translucent`. Non-solid modes also disable occlusion. |
+| `noOcclusion` | Disable occlusion explicitly, independently of the render mode. |
+| `noCollision` | Make the block non-collidable. |
+| `shape` | Outline and default collision shape, as six coordinates in `0..16`, or a list of such boxes. `[]` is empty. |
+| `collisionShape` | Override the collision shape without changing the outline. |
+| `lightLevel` | Emitted light, from 0 through 15. |
+| `sound` | `stone`, `wood`, `metal`, `glass`, `gravel`, `sand`, `grass`, or `wool`. |
+| `friction`, `speedFactor`, `jumpFactor` | Physical movement multipliers. |
+| `drops` | `self` (default), `none`, or an item ID. Authored loot tables take priority. |
+| `miningTool` | Add the block to the vanilla `pickaxe`, `axe`, `shovel`, or `hoe` mining tag. |
+| `requiredTier` | Declare a stone, iron, or diamond mining requirement; combine with `requiresCorrectToolForDrops`. Netherite uses vanilla's diamond requirement. |
+| `stacksTo`, `fireResistant` | Configure the block's inventory item. |
+
+In 1.21.x, PyFish sets the Fabric render layer and generates the corresponding
+NeoForge model metadata. Minecraft 26.2 selects layers automatically from each
+face's pixels; `translucent` additionally forces translucency on generated
+texture materials. Explicit metadata in an authored model is preserved.
+Minecraft 1.21.11 merges `cutout_mipped` into `cutout`; PyFish generates the
+supported layer name for that version.
+Custom JSON geometry does not infer a collision shape: declare `shape` as well.
+Unknown property names produce warnings rather than silently disappearing.
+
+Tools accept `tier` as `0` (wood), `1` (stone), `2` (iron, default), `3`
+(diamond), or `4` (netherite), or a material name including `gold`.
+Both normal tools and multitools respect their material's harvesting limits.
+The tier controls harvesting eligibility, not the defaults for `speed`,
+`durability` or damage; configure those separately.
+
+Content `use` and `use_on` callbacks may return `None` or `"pass"` to continue
+vanilla behavior, `True`/`"success"` or `"consume"` to handle the action, or
+`False`/`"fail"` to reject it. Callbacks run on the server. The `eat` callback
+is a notification, not a cancellable interaction.
+
+### Recipe Editing
+
+There is no automatic unification or preferred-mod selection. Register explicit
+operations during script startup; they run in declaration order on server start
+and datapack reload, against a fresh recipe snapshot rather than previous edits.
+The previous `tags.unify` entry point has been removed; use explicit replacements instead.
+
+```python
+from pyfish import recipes
+
+recipes.replace_input({"type": "minecraft:crafting_shaped"},
+                      "minecraft:iron_ingot", "#c:ingots/iron")
+recipes.replace_output({"mod": "example"},
+                       "#c:ingots/tin", "example:tin_ingot")
+recipes.remove_matching({"all": [{"type": "minecraft:smelting"},
+                                 {"not": {"mod": "minecraft"}}]})
+```
+
+Filters accept exact `id`, `type`, `mod` (recipe namespace), `input`, and `output`.
+Dictionary entries are ANDed; a list is OR. `all` and `any` take filter lists;
+`not` takes a filter. `{}` selects everything. Use explicit namespaced IDs in
+filters. Item selectors accept item IDs or `#tag` selectors. An item match does
+not expand or narrow ingredient tags; use the exact tag selector to replace one.
+Output replacements require a concrete item ID. Existing stack counts and
+explicit components are retained. Ingredients and outputs are separate operations.
+No inventories, loot tables or placed blocks are changed.
+
+Built-in schemas cover shaped/shapeless crafting, cooking, stonecutting and
+smithing. For a modded recipe type, declare the fields explicitly:
+
+```python
+recipes.register_schema("example:crusher", [
+    {"path": "ingredients.*", "role": "input", "kind": "ingredient"},
+    {"path": "results.*.stack", "role": "output", "kind": "item_stack"},
+])
+```
+
+Paths use dot-separated keys, numeric array indices, and `*` for array elements or object values.
+`ingredient` supports item/tag strings, simple item/tag objects and alternatives.
+`item_stack` supports item strings and objects with `id` or `item`, retaining
+other fields such as count and components. These are recipe field kinds, not
+Minecraft data components. Custom ingredient codecs and fluids are not inferred.
+Declare leaf stack paths to leave probabilities, durations and other metadata untouched.
+Registering a schema for an existing type replaces its schema.
+
+`recipes.get_last_report()` returns `modified`, `removed`, `unsupported` and
+`failed` after application. Unknown recipe types are listed rather than guessed;
+ID/type/mod filters can still remove them. Edits failing Minecraft's codec
+validation leave that entire recipe unchanged. `recipes.remove(id)` still works.
+
+During startup, `tags.get_items_by_tag()` inspects the available static and
+generated resources. Once a server has loaded its datapacks, it uses the actual
+resolved registry tags, including datapack overrides.
+
+`mc.spawn_particle(..., options={...})` accepts the particle-specific JSON fields
+for the selected Minecraft version, including block-state and dust parameters.
+Simple particles still work without `options`. `mc.give_item` drops any inventory
+overflow in ordinary-sized stacks instead of discarding it.
 
 ## Minimal Example
 
@@ -165,12 +387,22 @@ Useful commands:
 - `.\gradlew.bat -PpyfishVersionProfile=mc1211 quickCheck`
 - `.\gradlew.bat build`
 - `.\gradlew.bat -PpyfishVersionProfile=mc12111 build`
+- `.\gradlew.bat -PpyfishVersionProfile=mc262 build`
 - `.\gradlew.bat buildAllVersionProfiles`
 
-`quickCheck` is intended as the fast contributor workflow. It runs the shared
-tests plus the selected loader compile tasks for the active version profile.
+`quickCheck` runs shared tests and smoke-tests the packaged Python runtime for
+each selected loader.
 `build` builds only the selected version profile. Use `buildAllVersionProfiles`
 when you intentionally want the full release matrix.
+
+Run Gradle with JDK 25 (set the IDE's Gradle JVM or `JAVA_HOME`). GraalPy 25.3
+requires it for full native-extension support, including `sqlite3` and `ctypes`.
+Minecraft 26.2 uses unobfuscated Fabric packaging; older profiles retain Fabric
+remapping. Outputs are kept separately in `build/profiles/<profile>/`.
+
+Minecraft 26.2 uses world clocks. The Python time helpers read and update the
+dimension's default clock, falling back to the Overworld clock when there is
+no dimension-specific clock.
 
 ## Contributing
 

@@ -2,6 +2,11 @@ package fr.oesphy.pyfish.content.api;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonPrimitive;
+import fr.oesphy.pyfish.content.ContentVersion;
+import fr.oesphy.pyfish.content.RecipeEditor;
+import fr.oesphy.pyfish.content.PyFishContentSupport;
 import fr.oesphy.pyfish.PyFish;
 import fr.oesphy.pyfish.content.PyFishContentManager;
 import fr.oesphy.pyfish.content.PyFishResourceGenerator;
@@ -14,6 +19,43 @@ import java.util.Set;
 public final class RecipeAPI {
     private final PyFishContentManager manager;
     private final Set<String> removedRecipes = new LinkedHashSet<>();
+    private final RecipeEditor editor = new RecipeEditor();
+    private Map<String, Object> lastReport = Map.of();
+
+    public RecipeEditor getEditor() { return editor; }
+    public Map<String, Object> getLastReport() { return lastReport; }
+    public void setLastReport(Map<String, Object> report) { lastReport = Map.copyOf(report); }
+
+    public void registerSchema(String type, List<Map<String, Object>> fields) {
+        var parsed = fields.stream().map(field -> {
+            var data = PyFishContentSupport.snapshotProperties(field);
+            if (!data.keySet().equals(Set.of("path", "role", "kind")))
+                throw new IllegalArgumentException("Schema fields require exactly path, role and kind");
+            return new RecipeEditor.Field(data.get("path").toString(), data.get("role").toString(), data.get("kind").toString());
+        }).toList();
+        editor.schema(manager.resolveNamespacedString(type), parsed);
+    }
+
+    private Object filter(Object filter) {
+        return PyFishContentSupport.snapshotProperties(Map.of("filter", filter)).get("filter");
+    }
+
+    private String matchId(String id) {
+        if (id == null || id.isBlank()) throw new IllegalArgumentException("Item selectors cannot be blank");
+        return id.startsWith("#") ? "#" + manager.resolveNamespacedString(id.substring(1)) : manager.resolveNamespacedString(id);
+    }
+
+    public void replaceInput(Object filter, String from, String to) {
+        editor.add(new RecipeEditor.Rule(filter(filter), "input", matchId(from), matchId(to)));
+    }
+
+    public void replaceOutput(Object filter, String from, String to) {
+        editor.add(new RecipeEditor.Rule(filter(filter), "output", matchId(from), matchId(to)));
+    }
+
+    public void removeMatching(Object filter) {
+        editor.add(new RecipeEditor.Rule(filter(filter), "remove", null, null));
+    }
 
     public RecipeAPI(PyFishContentManager manager) {
         this.manager = manager;
@@ -39,7 +81,7 @@ public final class RecipeAPI {
         root.add("pattern", patternArray);
 
         JsonObject keyObject = new JsonObject();
-        keys.forEach((symbol, value) -> keyObject.addProperty(symbol, normalizeIngredient(value)));
+        keys.forEach((symbol, value) -> keyObject.add(symbol, normalizeIngredient(value)));
         root.add("key", keyObject);
 
         JsonObject resultObject = new JsonObject();
@@ -83,15 +125,17 @@ public final class RecipeAPI {
         PyFish.LOGGER.info("[PyFish/Content] Queued recipe removal for {}", resolved);
     }
 
-    private String normalizeIngredient(String value) {
+    private JsonElement normalizeIngredient(String value) {
         if (value == null || value.isBlank()) {
-            return "minecraft:air";
+            throw new IllegalArgumentException("Recipe ingredients cannot be blank");
         }
-
-        if (value.startsWith("#")) {
-            return "#" + manager.resolveNamespacedString(value.substring(1));
+        boolean tag = value.startsWith("#");
+        String id = manager.resolveNamespacedString(tag ? value.substring(1) : value);
+        if (ContentVersion.legacyIngredients()) {
+            JsonObject ingredient = new JsonObject();
+            ingredient.addProperty(tag ? "tag" : "item", id);
+            return ingredient;
         }
-
-        return manager.resolveNamespacedString(value);
+        return new JsonPrimitive(tag ? "#" + id : id);
     }
 }

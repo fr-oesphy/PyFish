@@ -14,7 +14,9 @@ public final class PythonEventHandler {
     private final String namespace;
 
     public PythonEventHandler(Map<String, Object> events) {
-        this.namespace = PyFishScriptContext.currentNamespace();
+        // NeoForge constructs registered content later, outside the original script scope.
+        this.namespace = events instanceof fr.oesphy.pyfish.content.CapturedEvents captured
+                ? captured.namespace() : PyFishScriptContext.currentNamespace();
         if (events == null) {
             return;
         }
@@ -42,24 +44,34 @@ public final class PythonEventHandler {
         return handlers.containsKey(event);
     }
 
-    public void call(String event, Object... args) {
+    public Value call(String event, Object... args) {
         Value handler = handlers.get(event);
         if (handler == null) {
-            return;
+            return null;
         }
 
         // Item and block hooks often fire on both logical sides. Python content callbacks are
         // server-authoritative to avoid duplicate state changes and client-only host access.
         if (isClientSideInvocation(args)) {
-            return;
+            return null;
         }
 
         try {
             try (PyFishScriptContext.Scope ignored = PyFishScriptContext.push(namespace)) {
-                handler.execute(args);
+                return handler.execute(args);
             }
         } catch (Exception e) {
             PyFish.LOGGER.error("[PyFish/Content] Error in Python content handler '{}': {}", event, e.getMessage());
+            return null;
+        }
+    }
+
+    public ContentInteraction callInteraction(String event, Object... args) {
+        try {
+            return ContentInteraction.from(call(event, args));
+        } catch (IllegalArgumentException e) {
+            PyFish.LOGGER.warn("[PyFish/Content] Invalid result for '{}': {}", event, e.getMessage());
+            return ContentInteraction.PASS;
         }
     }
 

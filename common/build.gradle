@@ -1,24 +1,30 @@
 plugins {
     id 'multiloader-common'
     id 'net.neoforged.moddev'
-    id 'org.graalvm.python'
 }
 
 def commonVersionedSrcDirs = []
 if (pyfish_version_profile_id == 'mc1211') {
     commonVersionedSrcDirs = [rootProject.file('src/mc1211/java')]
 } else if (pyfish_version_profile_id in ['mc1212', 'mc1213', 'mc1214']) {
-    commonVersionedSrcDirs = [rootProject.file('src/mc1212/java')]
-} else if (pyfish_version_profile_id == 'mc12111') {
+    commonVersionedSrcDirs = [rootProject.file('src/shared/mc1212-mc1214/java')]
+} else if (pyfish_version_profile_id in ['mc12111', 'mc262']) {
     commonVersionedSrcDirs = [
-            rootProject.file('src/mc1215/java'),
-            rootProject.file('src/mc12111/java')
+            rootProject.file('src/shared/mc1215-mc12111_mc262/java'),
+            rootProject.file('src/shared/mc12111_mc262/java')
     ]
+    if (pyfish_version_profile_id == 'mc262') {
+        commonVersionedSrcDirs += rootProject.file('src/mc262/java')
+    }
 } else if (pyfish_version_profile_id != 'mc1211') {
-    commonVersionedSrcDirs = [rootProject.file('src/mc1215/java')]
+    commonVersionedSrcDirs = [
+            rootProject.file('src/shared/mc1215-mc12111_mc262/java'),
+            rootProject.file('src/shared/mc1215-mc12110/java')
+    ]
 }
 
 def commonMainVersionedFiles = [
+        rootProject.file('src/main/java/fr/oesphy/pyfish/compat/MinecraftRecipeCompat.java').canonicalFile,
         rootProject.file('src/main/java/fr/oesphy/pyfish/content/PyFishContentSupport.java').canonicalFile,
         rootProject.file('src/main/java/fr/oesphy/pyfish/content/block/ModularBlock.java').canonicalFile,
         rootProject.file('src/main/java/fr/oesphy/pyfish/content/item/ModularItem.java').canonicalFile,
@@ -37,32 +43,44 @@ sourceSets {
     main {
         java.setSrcDirs([rootProject.file('src/main/java')] + commonVersionedSrcDirs)
         if (pyfish_version_profile_id != 'mc1211') {
+            java.srcDir(rootProject.file('src/shared/mc1212-mc12111_mc262/java'))
+        }
+        if (pyfish_version_profile_id != 'mc1211') {
             java.exclude { details -> commonMainVersionedFiles.contains(details.file.canonicalFile) }
         }
-        if (pyfish_version_profile_id == 'mc12111') {
-            def mc1215IdentifierCompat = rootProject.file('src/mc1215/java/fr/oesphy/pyfish/compat/MinecraftIdentifierCompat.java').canonicalFile
-            java.exclude { details -> details.file.canonicalFile in [mc1215IdentifierCompat, commonMainPackVersionCompat] }
+        if (pyfish_version_profile_id in ['mc12111', 'mc262']) {
+            java.exclude { details -> details.file.canonicalFile == commonMainPackVersionCompat }
+        }
+        if (pyfish_version_profile_id in ['mc1219', 'mc12110', 'mc12111', 'mc262']) {
+            java.srcDir(rootProject.file('src/shared/mc1219-mc12111_mc262/java'))
+            def mainBlockCompat = rootProject.file('src/main/java/fr/oesphy/pyfish/compat/MinecraftBlockCompat.java').canonicalFile
+            java.exclude { details -> details.file.canonicalFile == mainBlockCompat }
+        }
+        if (pyfish_version_profile_id == 'mc262') {
+            def overlay = rootProject.file('src/mc262/java').canonicalFile
+            java.exclude { details ->
+                !details.file.canonicalPath.startsWith(overlay.path + File.separator) &&
+                        new File(overlay, details.relativePath.pathString).isFile()
+            }
         }
         resources.srcDir(rootProject.file('src/main/resources'))
         resources.exclude('META-INF/**', 'pyfish.mixins.json', 'fabric.mod.json')
     }
     test {
         java.srcDir(project.file('src/test/java'))
-        resources.srcDir(project.file('src/test/resources'))
+        resources.setSrcDirs([project.file('src/test/resources')])
         compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
         runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath
     }
 }
 
-graalPy {
-    resourceDirectory = 'org.graalvm.python.vfs'
-}
-
 neoForge {
     neoFormVersion = neo_form_version_selector
-    parchment {
-        minecraftVersion = parchment_minecraft
-        mappingsVersion = parchment_version
+    if (minecraft_obfuscated) {
+        parchment {
+            minecraftVersion = parchment_minecraft
+            mappingsVersion = parchment_version
+        }
     }
 }
 
@@ -124,6 +142,7 @@ artifacts {
 
 tasks.named('test') {
     useJUnitPlatform()
+    systemProperty 'pyfish.test.profile', pyfish_version_profile_id
 }
 
 tasks.named('compileTestJava') {

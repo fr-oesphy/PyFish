@@ -12,7 +12,6 @@ plugins {
     id 'net.fabricmc.fabric-loom-remap' version '1.14.8' apply false
     id 'net.neoforged.moddev' version '2.0.141' apply false
     id 'com.gradleup.shadow' version '8.3.11' apply false
-    id 'org.graalvm.python' version '25.0.1' apply false
 }
 
 def versionProfileFile = rootProject.file('gradle/version-profiles.json')
@@ -26,6 +25,8 @@ if (activeVersionProfile == null) {
 }
 
 def versionProfileOverrides = [
+        java_version                      : activeVersionProfile.java_version ?: findProperty('java_version'),
+        minecraft_obfuscated              : activeVersionProfile.minecraft_obfuscated != false,
         minecraft_version                 : activeVersionProfile.minecraft_version,
         minecraft_dependency_version      : activeVersionProfile.minecraft_dependency_version ?: activeVersionProfile.minecraft_version,
         minecraft_version_range           : activeVersionProfile.minecraft_version_range,
@@ -40,8 +41,7 @@ def versionProfileOverrides = [
 ]
 
 ext {
-    graalPyVersion = '25.0.1'
-    pyfishSqliteJdbcVersion = '3.46.0.0'
+    graalPyVersion = '25.3.4.1'
     pyfishCompileOnlyLibraries = [
             'org.slf4j:slf4j-api:2.0.9'
     ]
@@ -56,8 +56,7 @@ ext {
             "org.graalvm.truffle:truffle-api:${graalPyVersion}",
             "org.graalvm.regex:regex:${graalPyVersion}",
             "org.graalvm.python:python-embedding:${graalPyVersion}@jar",
-            'org.bouncycastle:bcprov-jdk18on:1.78.1',
-            'org.bouncycastle:bcpkix-jdk18on:1.78.1'
+            "org.graalvm.python:python-bouncycastle-support:${graalPyVersion}",
     ]
     pyfishVersionProfiles = versionProfiles
     pyfishActiveVersionProfileId = activeVersionProfileId
@@ -67,7 +66,7 @@ ext {
 allprojects {
     version = rootProject.version
     group = rootProject.group
-    buildDir = rootProject.file("build/profiles/${activeVersionProfileId}/${project.name}")
+    layout.buildDirectory.set(rootProject.file("build/profiles/${activeVersionProfileId}/${project.name}"))
 
     ext {
         pyfish_version_profile_id = activeVersionProfileId
@@ -81,6 +80,20 @@ allprojects {
 
 subprojects {
     description = mod_description
+
+    tasks.withType(ProcessResources).configureEach {
+        exclude '**/__pycache__/**', '**/*.pyc', '**/*.pyo'
+        // Copy tasks otherwise retain deleted resources in incremental builds.
+        // Retired Python helpers must not survive in the next packaged JAR.
+        doFirst {
+            def destination = destinationDir.canonicalFile.toPath()
+            def buildRoot = project.layout.buildDirectory.get().asFile.canonicalFile.toPath()
+            if (!destination.startsWith(buildRoot) || destination == buildRoot) {
+                throw new GradleException("Resource output is outside the project build directory: ${destination}")
+            }
+            project.delete(destination.toFile())
+        }
+    }
 
     tasks.withType(Javadoc).configureEach {
         options.addStringOption('Xdoclint:none', '-quiet')

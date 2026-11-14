@@ -23,7 +23,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Enumeration;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -41,6 +40,11 @@ public final class PyFishResourceGenerator {
     private static final Map<String, Map<String, String>> LOCALIZATIONS = new LinkedHashMap<>();
     private static final Map<String, Set<String>> GENERATED_ITEM_TAGS = new LinkedHashMap<>();
     private static final Map<String, Set<String>> GENERATED_BLOCK_TAGS = new LinkedHashMap<>();
+    private static volatile boolean loadedTagsAvailable;
+
+    public static void useLoadedTags(boolean available) {
+        loadedTagsAvailable = available;
+    }
     private static final Set<String> CLIENT_RESOURCE_FOLDERS_REQUIRING_NAMESPACE = Set.of(
             "atlases", "blockstates", "equipment", "font", "items", "lang", "models",
             "particles", "post_effect", "shaders", "sounds", "textures", "waypoint_style");
@@ -117,6 +121,7 @@ public final class PyFishResourceGenerator {
     }
 
     public static synchronized void clear() {
+        loadedTagsAvailable = false;
         GENERATED_RESOURCES.values().forEach(Map::clear);
         LOCALIZATIONS.clear();
         GENERATED_ITEM_TAGS.clear();
@@ -152,6 +157,18 @@ public final class PyFishResourceGenerator {
 
     public static void addDataTextResource(String location, String content) {
         addResource(PackType.SERVER_DATA, location, content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static void addDataTextResourceIfAbsent(String location, String content) {
+        String id = resolveIdentifier(location, PyFish.MODID);
+        String path = "data/" + namespaceOf(id) + "/" + pathOf(id);
+        if (PyFishResourceGenerator.class.getClassLoader().getResource(path) == null) {
+            addResourceIfAbsent(PackType.SERVER_DATA, id, content.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    public static void generateBlockResources(String id, Map<String, Object> properties) {
+        BlockResources.generate(id, properties);
     }
 
     public static synchronized void addResource(PackType packType, String location, byte[] data) {
@@ -443,6 +460,20 @@ public final class PyFishResourceGenerator {
 
     public static List<String> getItemsByTag(String tagId) {
         LinkedHashSet<String> values = new LinkedHashSet<>();
+        if (loadedTagsAvailable) {
+            Object key = fr.oesphy.pyfish.compat.MinecraftCompat.createTagKey(
+                    net.minecraft.core.registries.Registries.ITEM, resolveIdentifier(tagId, PyFish.MODID));
+            for (Object entry : net.minecraft.core.registries.BuiltInRegistries.ITEM.getTags().toList()) {
+                Object candidate = entry instanceof com.mojang.datafixers.util.Pair<?, ?> pair ? pair.getSecond() : entry;
+                if (candidate instanceof net.minecraft.core.HolderSet.Named<?> named && named.key().equals(key)) {
+                    named.stream().forEach(holder -> values.add(String.valueOf(
+                            net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey((net.minecraft.world.item.Item) holder.value()))));
+                    return new ArrayList<>(values);
+                }
+            }
+            // An absent live tag is authoritative too; disabled datapacks must not leak back in.
+            return new ArrayList<>();
+        }
         resolveTagValues(resolveIdentifier(tagId, PyFish.MODID), "item", values, new HashSet<>());
         return new ArrayList<>(values);
     }
@@ -455,6 +486,16 @@ public final class PyFishResourceGenerator {
         }
 
         collectGeneratedTagValues(resolvedTagId, registryFolder, values, visited);
+        String resource = namespaceOf(resolvedTagId) + ":tags/" + registryFolder + "/" + pathOf(resolvedTagId) + ".json";
+        byte[] authored = GENERATED_RESOURCES.get(PackType.SERVER_DATA).get(resource);
+        if (authored != null) {
+            JsonObject root = JsonParser.parseString(new String(authored, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonArray entries = root.getAsJsonArray("values");
+            if (entries != null) for (JsonElement entry : entries) {
+                String value = entry.isJsonObject() ? entry.getAsJsonObject().get("id").getAsString() : entry.getAsString();
+                collectTagValue(value, registryFolder, values, visited);
+            }
+        }
         collectClasspathTagValues(resolvedTagId, registryFolder, values, visited);
     }
 
@@ -590,13 +631,22 @@ public final class PyFishResourceGenerator {
     }
 
     private static void addTagResource(String registryFolder, String tagId, Set<String> values) {
+        String location = namespaceOf(tagId) + ":tags/" + registryFolder + "/" + pathOf(tagId) + ".json";
         JsonObject root = new JsonObject();
         root.addProperty("replace", false);
         JsonArray array = new JsonArray();
-        values.forEach(array::add);
+        byte[] existing = GENERATED_RESOURCES.get(PackType.SERVER_DATA).get(location);
+        Set<String> seen = new LinkedHashSet<>();
+        if (existing != null) {
+            root = JsonParser.parseString(new String(existing, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonArray authored = root.getAsJsonArray("values");
+            if (authored != null) for (JsonElement entry : authored) {
+                array.add(entry);
+                seen.add(entry.isJsonObject() ? entry.getAsJsonObject().get("id").getAsString() : entry.getAsString());
+            }
+        }
+        for (String value : values) if (seen.add(value)) array.add(value);
         root.add("values", array);
-
-        String location = namespaceOf(tagId) + ":tags/" + registryFolder + "/" + pathOf(tagId) + ".json";
         GENERATED_RESOURCES.get(PackType.SERVER_DATA)
                 .put(location, GSON.toJson(root).getBytes(StandardCharsets.UTF_8));
     }

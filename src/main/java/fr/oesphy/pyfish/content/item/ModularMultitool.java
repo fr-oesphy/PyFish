@@ -1,6 +1,7 @@
 package fr.oesphy.pyfish.content.item;
 
 import fr.oesphy.pyfish.content.api.PythonEventHandler;
+import fr.oesphy.pyfish.content.api.ContentInteraction;
 import fr.oesphy.pyfish.content.api.PyFishContentCallbackSupport;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
@@ -34,13 +35,15 @@ public class ModularMultitool extends DiggerItem {
 
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
-        PyFishContentCallbackSupport.callItemUse(eventHandler, level, player, hand);
+        var result = PyFishContentCallbackSupport.callItemUse(eventHandler, level, player, hand);
+        if (result != ContentInteraction.PASS) return new InteractionResultHolder<>(result.vanilla(), player.getItemInHand(hand));
         return super.use(level, player, hand);
     }
 
     @Override
     public InteractionResult useOn(UseOnContext context) {
-        PyFishContentCallbackSupport.callItemUseOn(eventHandler, context);
+        var result = PyFishContentCallbackSupport.callItemUseOn(eventHandler, context);
+        if (result != ContentInteraction.PASS) return result.vanilla();
         return super.useOn(context);
     }
 
@@ -60,6 +63,7 @@ public class ModularMultitool extends DiggerItem {
 
     @Override
     public boolean isCorrectToolForDrops(ItemStack stack, BlockState state) {
+        if (state.is(tier.getIncorrectBlocksForDrops())) return false;
         return state.is(BlockTags.MINEABLE_WITH_PICKAXE)
                 || state.is(BlockTags.MINEABLE_WITH_AXE)
                 || state.is(BlockTags.MINEABLE_WITH_SHOVEL)

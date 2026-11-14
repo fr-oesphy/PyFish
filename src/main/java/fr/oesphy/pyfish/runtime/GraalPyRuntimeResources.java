@@ -28,7 +28,7 @@ import java.util.UUID;
  * their internal resources, so relying on GraalPy's automatic lookup is unsafe.
  */
 public final class GraalPyRuntimeResources {
-    public static final String GRAALPY_VERSION = "25.0.1";
+    public static final String GRAALPY_VERSION = "25.3.4.1";
 
     private static final String RESOURCE_DIRECTORY = "META-INF/resources";
     private static final String COMPLETE_MARKER = ".complete";
@@ -264,7 +264,7 @@ public final class GraalPyRuntimeResources {
             if (os.equals("windows")) {
                 return new PlatformLayout(os, architecture, "lib-graalpython", "Lib", "Include");
             }
-            return new PlatformLayout(os, architecture, "lib/graalpy25.0", "lib/python3.12", "include/python3.12");
+            return new PlatformLayout(os, architecture, "lib/graalpy25.3", "lib/python3.13", "include/python3.13");
         }
 
         private String resourceDirectory() {

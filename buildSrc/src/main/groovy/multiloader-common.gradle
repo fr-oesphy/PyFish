@@ -107,7 +107,7 @@ processResources {
             'java_version'                 : java_version
     ]
 
-    filesMatching(['fabric.mod.json', 'META-INF/neoforge.mods.toml', '*.mixins.json']) {
+    filesMatching(['fabric.mod.json', 'META-INF/neoforge.mods.toml', '*.mixins.json', 'pyfish-build.properties']) {
         expand expandProps
     }
     inputs.properties(expandProps)

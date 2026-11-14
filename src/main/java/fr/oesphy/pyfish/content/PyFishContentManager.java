@@ -43,24 +43,28 @@ public final class PyFishContentManager {
     }
 
     public void registerItem(String id, Map<String, Object> properties) {
+        ContentProperties.validate("item", PyFishContentSupport.snapshotProperties(properties));
         String resolvedId = resolveId(id);
         requireBackend().registerItem(PyFishResourceGenerator.namespaceOf(resolvedId),
                 PyFishResourceGenerator.pathOf(resolvedId), properties);
     }
 
     public void registerFood(String id, int nutrition, double saturation, Map<String, Object> properties) {
+        ContentProperties.validate("food", PyFishContentSupport.snapshotProperties(properties));
         String resolvedId = resolveId(id);
         requireBackend().registerFood(PyFishResourceGenerator.namespaceOf(resolvedId),
                 PyFishResourceGenerator.pathOf(resolvedId), nutrition, saturation, properties);
     }
 
     public void registerTool(String id, String type, Map<String, Object> properties) {
+        ContentProperties.validate("tool", PyFishContentSupport.snapshotProperties(properties));
         String resolvedId = resolveId(id);
         requireBackend().registerTool(PyFishResourceGenerator.namespaceOf(resolvedId),
                 PyFishResourceGenerator.pathOf(resolvedId), type, properties);
     }
 
     public void registerBlock(String id, Map<String, Object> properties) {
+        ContentProperties.validate("block", PyFishContentSupport.snapshotProperties(properties));
         String resolvedId = resolveId(id);
         requireBackend().registerBlock(PyFishResourceGenerator.namespaceOf(resolvedId),
                 PyFishResourceGenerator.pathOf(resolvedId), properties);

@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "pyfish_clipboard_probe",
+  "version": "1.0.0",
+  "name": "PyFish Clipboard Client Diagnostic",
+  "environment": "client",
+  "entrypoints": {"client": ["fr.oesphy.pyfish.clipboardtest.ClipboardClientProbe"]},
+  "depends": {"pyfish": "*", "fabric-api": "*"}
+}

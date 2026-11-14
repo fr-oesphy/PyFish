@@ -12,7 +12,6 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.packs.PackLocationInfo;
-import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.repository.Pack;
 import net.minecraft.server.packs.repository.PackSource;
 import net.minecraft.world.item.CreativeModeTab;
@@ -138,7 +137,7 @@ public final class NeoForgePyFishContentBackend implements PyFishContentBackend 
         var blockHolder = blocks(namespace).register(path,
                 () -> PyFishContentSupport.createBlock(namespace, path, propertySnapshot, capturedEvents));
         DeferredHolder<Item, Item> itemHolder = blockItems(namespace).register(path,
-                () -> PyFishContentSupport.createBlockItem(namespace, path, blockHolder.get()));
+                () -> PyFishContentSupport.createBlockItem(namespace, path, blockHolder.get(), propertySnapshot));
 
         handleTab(itemHolder, namespace, propertySnapshot);
         PyFishContentSupport.generateBlockResources(id, propertySnapshot);

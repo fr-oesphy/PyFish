@@ -10,6 +10,9 @@ displayURL="https://modrinth.com/project/pyfish-python"
 authors="${mod_authors}"
 description='''${mod_description}'''
 
+[features.${mod_id}]
+javaVersion="[${java_version},)"
+
 [[dependencies.${mod_id}]]
 modId="neoforge"
 type="required"

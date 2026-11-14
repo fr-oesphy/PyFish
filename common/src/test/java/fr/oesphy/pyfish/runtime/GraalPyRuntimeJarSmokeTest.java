@@ -7,6 +7,7 @@ import org.graalvm.polyglot.Value;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.List;
 
 /** Runs in a fresh JVM whose only runtime dependency is the finished mod JAR. */
@@ -17,6 +18,13 @@ public final class GraalPyRuntimeJarSmokeTest {
     public static void main(String[] args) throws Exception {
         Path jar = Path.of(args[0]).toAbsolutePath();
         Path cache = Path.of(args[1]).toAbsolutePath();
+
+        // GraalJS is single-threaded; Python's GC thread must not enter its context.
+        try (Context js = Context.newBuilder("js").option("engine.WarnInterpreterOnly", "false").build()) {
+            if (js.eval("js", "6 * 7").asInt() != 42) {
+                throw new IllegalStateException("Embedded JavaScript engine is unavailable");
+            }
+        }
 
         GraalPyRuntimeResources.RuntimeHome runtimeHome = GraalPyRuntimeResources
                 .prepare(jar, cache)
@@ -34,18 +42,109 @@ public final class GraalPyRuntimeJarSmokeTest {
                 .currentWorkingDirectory(Path.of(".").toAbsolutePath())
                 .allowExperimentalOptions(true)
                 .option("python.EmulateJython", "true")
-                .option("python.IsolateNativeModules", "true")
                 .option("engine.WarnInterpreterOnly", "false");
         runtimeHome.configure(builder);
 
+        Path pipDirectory = cache.resolve("pip");
+        try (InputStream pip = GraalPyRuntimeJarSmokeTest.class.getClassLoader().getResourceAsStream("pip.whl")) {
+            if (pip == null) throw new IllegalStateException("Bundled pip wheel is missing");
+            try (var zip = new java.util.zip.ZipInputStream(pip)) {
+                java.util.zip.ZipEntry entry;
+                while ((entry = zip.getNextEntry()) != null) {
+                    Path destination = pipDirectory.resolve(entry.getName()).normalize();
+                    if (!destination.startsWith(pipDirectory)) throw new IllegalStateException("Unsafe pip wheel entry");
+                    if (entry.isDirectory()) Files.createDirectories(destination);
+                    else {
+                        Files.createDirectories(destination.getParent());
+                        Files.copy(zip, destination, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    }
+                }
+            }
+        }
         try (Context context = builder.build()) {
-            context.eval("python", "import ast, json, queue, threading");
+            context.getBindings("python").putMember("_test_cache", cache.toString());
+            context.eval("python", """
+                    import pathlib, zipfile, sys, runpy
+                    root = pathlib.Path(_test_cache)
+                    wheel = root / 'pyfish_runtime_probe-1.0-py3-none-any.whl'
+                    with zipfile.ZipFile(wheel, 'w') as archive:
+                        archive.writestr('pyfish_runtime_probe.py', 'value = 42\\n')
+                        archive.writestr('pyfish_runtime_probe-1.0.dist-info/METADATA',
+                            'Metadata-Version: 2.1\\nName: pyfish-runtime-probe\\nVersion: 1.0\\n')
+                        archive.writestr('pyfish_runtime_probe-1.0.dist-info/WHEEL',
+                            'Wheel-Version: 1.0\\nGenerator: pyfish-test\\nRoot-Is-Purelib: true\\nTag: py3-none-any\\n')
+                        archive.writestr('pyfish_runtime_probe-1.0.dist-info/RECORD', '')
+                    sys.argv = ['pyfish-smoke']
+                    """);
+            if (!PythonPipRunner.run(context, List.of("pip", "install", "--no-index", "--no-deps", "--no-cache-dir",
+                    "--disable-pip-version-check", "--upgrade", "--target", cache.resolve("packages").toString(),
+                    cache.resolve("pyfish_runtime_probe-1.0-py3-none-any.whl").toString()), pipDirectory)) {
+                throw new IllegalStateException("Offline dependency installation failed");
+            }
+            context.eval("python", """
+                    assert sys.argv == ['pyfish-smoke']
+                    sys.path.insert(0, str(root / 'packages'))
+                    import pyfish_runtime_probe
+                    assert pyfish_runtime_probe.value == 42
+                    """);
+            for (String module : List.of("ast", "json", "queue", "threading", "copy", "ssl", "hashlib", "sqlite3",
+                    "ctypes", "bz2", "lzma", "zlib", "unicodedata", "decimal")) {
+                System.out.println("Checking Python module: " + module);
+                context.eval("python", "import " + module);
+            }
+            context.eval("python", """
+                    import ast, json, queue, threading, sys, copy, ssl, hashlib, sqlite3
+                    import asyncio, concurrent.futures, pathlib, tempfile, zipfile, xml.etree.ElementTree
+                    from dataclasses import dataclass
+                    from typing import TypeIs, ReadOnly
+                    import java
+                    assert sys.version_info[:2] == (3, 13), sys.version
+                    assert sys.graalpy_version_info[:3] == (25, 3, 4), sys.graalpy_version_info
+                    assert json.loads(json.dumps({'value': [1, True, None]}))['value'][0] == 1
+                    assert isinstance(ast.parse('x = 1'), ast.Module)
+                    q = queue.Queue()
+                    worker = threading.Thread(target=lambda: q.put(42))
+                    worker.start()
+                    worker.join(timeout=10)
+                    assert not worker.is_alive() and q.get(timeout=1) == 42
+                    @dataclass(frozen=True)
+                    class Settings:
+                        value: int = 1
+                    assert copy.replace(Settings(), value=2).value == 2
+                    java_list = java.type('java.util.ArrayList')()
+                    java_list.add('pyfish')
+                    assert java_list.get(0) == 'pyfish'
+                    assert ssl.create_default_context() is not None
+                    assert len(hashlib.sha256(b'pyfish').digest()) == 32
+                    db = sqlite3.connect(':memory:')
+                    assert db.execute('select 42').fetchone()[0] == 42
+                    db.close()
+                    async def check_async():
+                        await asyncio.sleep(0)
+                        return 42
+                    assert asyncio.run(check_async()) == 42
+                    archive = root / 'compressed-package.pyz'
+                    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as package:
+                        package.writestr('pyfish_zip_probe/__init__.py', 'from .value import VALUE\\n')
+                        package.writestr('pyfish_zip_probe/value.py', 'VALUE = 42\\n' + '# zipped source\\n' * 10000)
+                    sys.path.append(str(archive))
+                    import pyfish_zip_probe
+                    assert pyfish_zip_probe.VALUE == 42
+                    print('Verified Python', sys.version)
+                    """);
             for (String moduleName : List.of(
-                    "java_asyncio",
                     "java_multiprocessing",
-                    "java_requests",
-                    "java_websocket")) {
+                    "java_websocket",
+                    "java_pillow")) {
                 executeModule(context, moduleName);
+            }
+            NativeDependencyChecks.run(context, cache.resolve("dependency-checks"), pipDirectory);
+            try (InputStream stream = GraalPyRuntimeJarSmokeTest.class.getResourceAsStream("/python/original_libraries.py")) {
+                if (stream == null) throw new IllegalStateException("Original-library tests are missing");
+                String checks = new String(stream.readAllBytes(), StandardCharsets.UTF_8) + "\nrun_standard_checks\n";
+                context.eval(org.graalvm.polyglot.Source.newBuilder("python", checks, "original-standard-library.py")
+                        .option("python.NewGlobals", "true").buildLiteral())
+                        .execute(cache.resolve("original-stdlib").toString());
             }
         }
 
