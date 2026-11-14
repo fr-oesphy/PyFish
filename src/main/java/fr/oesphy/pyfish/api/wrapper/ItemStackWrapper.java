@@ -64,7 +64,13 @@ public final class ItemStackWrapper {
     public static ItemStackWrapper of(String itemId, int count) {
         Objects.requireNonNull(itemId, "itemId must not be null");
         ResourceLocation rl = fr.oesphy.pyfish.api.convert.TypeCoerce.toResourceLocation(itemId);
-        var item = BuiltInRegistries.ITEM.get(rl);
+        // In MC 1.21.1, BuiltInRegistries.ITEM.get(ResourceLocation) returns
+        // Optional<Holder.Reference<Item>>. Unwrap it; fall back to air on a miss.
+        java.util.Optional<? extends net.minecraft.world.item.Item> resolved =
+                BuiltInRegistries.ITEM.getOptional(rl);
+        net.minecraft.world.item.Item item = resolved.isPresent()
+                ? resolved.get()
+                : net.minecraft.world.item.Items.AIR;
         return new ItemStackWrapper(new ItemStack(item, count));
     }
 
